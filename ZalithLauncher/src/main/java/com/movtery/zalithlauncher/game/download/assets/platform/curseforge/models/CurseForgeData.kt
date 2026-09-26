@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.assets.platform.curseforge.models
 
 import com.movtery.zalithlauncher.game.download.assets.platform.Platform
@@ -80,7 +98,7 @@ class CurseForgeData(
      * 这个项目所属的类 id
      */
     @SerialName("classId")
-    val classId: CurseForgeClassID? = null,
+    val classId: Int? = null,
 
     /**
      * 项目的作者名单
@@ -92,13 +110,13 @@ class CurseForgeData(
      * 项目的 Logo
      */
     @SerialName("logo")
-    val logo: Asset,
+    val logo: Asset? = null,
 
     /**
      * 项目的截图
      */
     @SerialName("screenshots")
-    val screenshots: Array<Asset>,
+    val screenshots: Array<Asset> = emptyArray(),
 
     /**
      * 项目的主文件 ID
@@ -122,7 +140,7 @@ class CurseForgeData(
      * 该项目的最新抢先体验文件的文件相关详细信息列表
      */
     @SerialName("latestEarlyAccessFilesIndexes")
-    val latestEarlyAccessFilesIndexes: Array<CurseForgeFileIndex>,
+    val latestEarlyAccessFilesIndexes: Array<CurseForgeFileIndex>? = null,
 
     /**
      * 项目的创建日期
@@ -281,7 +299,7 @@ class CurseForgeData(
         val url: String,
 
         @SerialName("avatarUrl")
-        val avatarUrl: String?
+        val avatarUrl: String? = null
     )
 
     @Serializable
@@ -315,7 +333,9 @@ class CurseForgeData(
 
     override fun platformAuthor(): String = authors[0].name
 
-    override fun platformIconUrl(): String? = logo.url
+    override fun platformAuthors(): List<String> = authors.map { it.name }
+
+    override fun platformIconUrl(): String? = logo?.url
 
     override fun platformDownloadCount(): Long = downloadCount
 
@@ -330,20 +350,14 @@ class CurseForgeData(
     }
 
     override fun platformCategories(classes: PlatformClasses): List<PlatformFilterCode>? {
-        fun map(string: String): PlatformFilterCode? {
-            val mapValues = when (classes) {
-                PlatformClasses.MOD -> CurseForgeModCategory.entries
-                PlatformClasses.MOD_PACK -> CurseForgeModpackCategory.entries
-                PlatformClasses.RESOURCE_PACK -> CurseForgeResourcePackCategory.entries
-                PlatformClasses.SAVES -> CurseForgeSavesCategory.entries
-                PlatformClasses.SHADERS -> CurseForgeShadersCategory.entries
-            }
-            return mapValues.find { it.describe() == string }
-        }
-
         return categories.mapNotNull {
-            map(it.id.toString())
+            it.id.toString().mapCurseForgeCategory(classes)
         }.toSet().takeIf { it.isNotEmpty() }
             ?.sortedWith { o1, o2 -> o1.index() - o2.index() }
     }
 }
+
+/**
+ * @return 该模组是否可见
+ */
+fun CurseForgeData.isApproved(): Boolean = this.status == 4

@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.installed
 
 import com.movtery.zalithlauncher.game.version.download.processLibraries
@@ -5,74 +23,89 @@ import com.movtery.zalithlauncher.game.versioninfo.models.GameManifest
 import com.movtery.zalithlauncher.game.versioninfo.models.GameManifest.Library
 import com.movtery.zalithlauncher.utils.GSON
 import com.movtery.zalithlauncher.utils.file.child
-import com.movtery.zalithlauncher.utils.logging.Logger.lDebug
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
 import java.io.File
 
-fun getGameManifest(version: Version): GameManifest {
-    return getGameManifest(version, false)
+class VersionInfoParser(private val version: Version) {
+    private var gameManifest: GameManifest? = null
+    private var inherit: Boolean? = null
+    private var skipIfNotExists: Boolean = false
+
+    /**
+     * 设置预先加载的 [GameManifest]
+     */
+    fun setManifest(manifest: GameManifest): VersionInfoParser {
+        this.gameManifest = manifest
+        return this
+    }
+
+    /**
+     * 启用版本继承
+     * @param skipIfNotExists 若 [GameManifest.inheritsFrom] 对应的 JSON 文件不存在，则静默跳过继承
+     */
+    fun setInheriting(skipIfNotExists: Boolean = false): VersionInfoParser {
+        this.inherit = true
+        this.skipIfNotExists = skipIfNotExists
+        return this
+    }
+
+    /**
+     * 构建并返回最终合并后的 [GameManifest]
+     */
+    fun build(): GameManifest {
+        val manifest = gameManifest ?: GSON.fromJson(
+            File(version.getVersionPath(), "${version.getVersionName()}.json").readText(),
+            GameManifest::class.java
+        )
+
+        val inheritsManifest = if (inherit == true && manifest.inheritsFrom != null) {
+            val inherits = manifest.inheritsFrom
+            File(version.getVersionsFolder()).child(inherits).child("${inherits}.json")
+                .let { inheritsFile ->
+                    if (skipIfNotExists && !inheritsFile.exists()) null
+                    else {
+                        GSON.fromJson(inheritsFile.readText(), GameManifest::class.java)
+                    }
+                }
+        } else null
+
+        return getGameManifest(
+            gameManifest = manifest,
+            inheritsManifest = inheritsManifest
+        )
+    }
 }
 
 /**
  * [Modified from PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher/blob/a6f3fc0/app_pojavlauncher/src/main/java/net/kdt/pojavlaunch/Tools.java#L885-L979)
  */
-fun getGameManifest(version: Version, skipInheriting: Boolean): GameManifest {
-    var gameManifest = GSON.fromJson(File(version.getVersionPath(), "${version.getVersionName()}.json").readText(), GameManifest::class.java)
-    if (skipInheriting || version.getVersionInfo()?.loaderInfo == null) {
-        processLibraries { gameManifest.libraries }
-    } else if (gameManifest.inheritsFrom != null) {
-        val inheritsManifest = run {
-            val inherits = gameManifest.inheritsFrom
-            GSON.fromJson(File(version.getVersionsFolder()).child(inherits).child("${inherits}.json").readText(), GameManifest::class.java)
-        }
-        insertSafety(
+private fun getGameManifest(
+    gameManifest: GameManifest,
+    inheritsManifest: GameManifest?,
+): GameManifest {
+    var gameManifest0 = gameManifest
+    if (inheritsManifest != null && gameManifest0.inheritsFrom != null) {
+        mergeManifest(
+            from = gameManifest0,
             target = inheritsManifest,
-            from = gameManifest,
-            "assetIndex", "assets", "id", "mainClass", "minecraftArguments", "releaseTime", "time", "type"
         )
 
-        // Go through the libraries, remove the ones overridden by the custom version
-        val inheritLibraryList: MutableList<Library> = ArrayList(inheritsManifest.libraries)
-        outer_loop@ for (library in gameManifest.libraries) {
-            // Clean libraries overridden by the custom version
-            val libName: String = library.name.substring(0, library.name.lastIndexOf(":"))
-
-            for (inheritLibrary in inheritLibraryList) {
-                val inheritLibName: String =
-                    inheritLibrary.name.substring(0, inheritLibrary.name.lastIndexOf(":"))
-
-                if (libName == inheritLibName) {
-                    lDebug(
-                        "Library " + libName + ": Replaced version " +
-                                libName.substring(libName.lastIndexOf(":") + 1) + " with " +
-                                inheritLibName.substring(inheritLibName.lastIndexOf(":") + 1)
-                    )
-
-                    // Remove the library , superseded by the overriding libs
-                    inheritLibraryList.remove(inheritLibrary)
-                    continue@outer_loop
-                }
-            }
-        }
-
-
         // Fuse libraries
-        inheritLibraryList += gameManifest.libraries
+        val inheritLibraryList: MutableList<Library> = ArrayList(inheritsManifest.libraries)
+        inheritLibraryList += gameManifest0.libraries
         inheritsManifest.libraries = inheritLibraryList
-        processLibraries { inheritsManifest.libraries }
 
         // Inheriting Minecraft 1.13+ with append custom args
-        if (inheritsManifest.arguments != null && gameManifest.arguments != null) {
+        if (inheritsManifest.arguments != null && gameManifest0.arguments != null) {
             val totalArgList: MutableList<Any?> = ArrayList(inheritsManifest.arguments.game)
 
             var nskip = 0
-            for (i in 0..<gameManifest.arguments.game.size) {
+            for (i in 0..<gameManifest0.arguments.game.size) {
                 if (nskip > 0) {
                     nskip--
                     continue
                 }
 
-                var perCustomArg: Any = gameManifest.arguments.game[i]
+                var perCustomArg: Any = gameManifest0.arguments.game[i]
                 if (perCustomArg is String) {
                     var perCustomArgStr = perCustomArg
                     // Check if there is a duplicate argument on combine
@@ -80,7 +113,7 @@ fun getGameManifest(version: Version, skipInheriting: Boolean): GameManifest {
                             perCustomArgStr
                         )
                     ) {
-                        perCustomArg = gameManifest.arguments.game[i + 1]
+                        perCustomArg = gameManifest0.arguments.game[i + 1]
                         if (perCustomArg is String) {
                             perCustomArgStr = perCustomArg
                             // If the next is argument value, skip it
@@ -99,36 +132,45 @@ fun getGameManifest(version: Version, skipInheriting: Boolean): GameManifest {
             inheritsManifest.arguments.game = totalArgList
         }
 
-        gameManifest = inheritsManifest
+        gameManifest0 = inheritsManifest
     }
 
-    if (gameManifest.javaVersion?.majorVersion == 0) {
-        gameManifest.javaVersion.majorVersion = gameManifest.javaVersion.version
+    processLibraries { gameManifest0.libraries }
+
+    if (gameManifest0.javaVersion?.majorVersion == 0) {
+        gameManifest0.javaVersion.majorVersion = gameManifest0.javaVersion.version
     }
 
-    return gameManifest
+    return uniqueLibraries(gameManifest0)
 }
 
-/**
- * [Modified from PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher/blob/a6f3fc0/app_pojavlauncher/src/main/java/net/kdt/pojavlaunch/Tools.java#L982-L996)
- */
-// Prevent NullPointerException
-private fun insertSafety(
-    target: GameManifest,
-    from: GameManifest,
-    vararg keyArr: String
+private inline fun <T> mergeField(
+    getter: () -> T?,
+    setter: (T) -> Unit
 ) {
-    keyArr.forEach { key ->
-        var value: Any? = null
-        runCatching {
-            val fieldA = from.javaClass.getDeclaredField(key).apply { isAccessible = true }
-            value = fieldA.get(from)
-            if (((value is String) && (value as String).isNotEmpty()) || value != null) {
-                val fieldB = target.javaClass.getDeclaredField(key).apply { isAccessible = true }
-                fieldB.set(target, value)
+    when (val value = getter()) {
+        null -> return
+
+        is String -> {
+            if (value.isNotEmpty()) {
+                setter(value)
             }
-        }.onFailure {
-            lWarning("Unable to insert $key = $value", it)
         }
+
+        else -> setter(value)
     }
+}
+
+private fun mergeManifest(
+    from: GameManifest,
+    target: GameManifest,
+) {
+    mergeField(from::getRawAssetIndex, target::setAssetIndex)
+    mergeField(from::getAssets, target::setAssets)
+    mergeField(from::getId, target::setId)
+    mergeField(from::getMainClass, target::setMainClass)
+    mergeField(from::getMinecraftArguments, target::setMinecraftArguments)
+    mergeField(from::getReleaseTime, target::setReleaseTime)
+    mergeField(from::getTime, target::setTime)
+    mergeField(from::getType, target::setType)
 }

@@ -1,5 +1,24 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.download.game
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
@@ -12,18 +31,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,89 +55,45 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation3.runtime.NavKey
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
-import com.movtery.zalithlauncher.game.addons.modloader.ResponseTooShortException
+import com.movtery.zalithlauncher.game.addons.modloader.cleanroom.CleanroomVersions
 import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.fabric.FabricAPIVersions
-import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.fabric.FabricVersion
 import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.fabric.FabricVersions
+import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.legacyfabric.LegacyFabricAPIVersions
+import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.legacyfabric.LegacyFabricVersions
 import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.quilt.QuiltAPIVersions
-import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.quilt.QuiltVersion
 import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.quilt.QuiltVersions
 import com.movtery.zalithlauncher.game.addons.modloader.forgelike.forge.ForgeVersion
 import com.movtery.zalithlauncher.game.addons.modloader.forgelike.forge.ForgeVersions
-import com.movtery.zalithlauncher.game.addons.modloader.forgelike.neoforge.NeoForgeVersion
 import com.movtery.zalithlauncher.game.addons.modloader.forgelike.neoforge.NeoForgeVersions
-import com.movtery.zalithlauncher.game.addons.modloader.modlike.ModVersion
 import com.movtery.zalithlauncher.game.addons.modloader.optifine.OptiFineVersion
 import com.movtery.zalithlauncher.game.addons.modloader.optifine.OptiFineVersions
 import com.movtery.zalithlauncher.game.download.game.GameDownloadInfo
 import com.movtery.zalithlauncher.game.version.installed.VersionsManager
+import com.movtery.zalithlauncher.game.version.installed.VersionsManager.isVersionExists
 import com.movtery.zalithlauncher.ui.base.BaseScreen
 import com.movtery.zalithlauncher.ui.components.AnimatedColumn
 import com.movtery.zalithlauncher.ui.components.SimpleTextInputField
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
+import com.movtery.zalithlauncher.ui.components.verticalScrollWithBar
 import com.movtery.zalithlauncher.ui.screens.NestedNavKey
 import com.movtery.zalithlauncher.ui.screens.NormalNavKey
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
+import com.movtery.zalithlauncher.ui.screens.content.elements.CommonVersionInfoLayout
 import com.movtery.zalithlauncher.ui.screens.content.elements.isFilenameInvalid
+import com.movtery.zalithlauncher.ui.theme.cardColor
+import com.movtery.zalithlauncher.ui.theme.onCardColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 import com.movtery.zalithlauncher.utils.animation.swapAnimateDpAsState
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import io.ktor.client.plugins.HttpRequestTimeoutException
-import io.ktor.client.plugins.ResponseException
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.serialization.SerializationException
-import java.net.ConnectException
-import java.net.UnknownHostException
-import java.nio.channels.UnresolvedAddressException
-
-private class AddonList {
-    //版本列表
-    var optifineList by mutableStateOf<List<OptiFineVersion>?>(null)
-    var forgeList by mutableStateOf<List<ForgeVersion>?>(null)
-    var neoforgeList by mutableStateOf<List<NeoForgeVersion>?>(null)
-    var fabricList by mutableStateOf<List<FabricVersion>?>(null)
-    var fabricAPIList by mutableStateOf<List<ModVersion>?>(null)
-    var quiltList by mutableStateOf<List<QuiltVersion>?>(null)
-    var quiltAPIList by mutableStateOf<List<ModVersion>?>(null)
-}
-
-private class CurrentAddon {
-    //当前选择版本
-    var optifineVersion by mutableStateOf<OptiFineVersion?>(null)
-    var forgeVersion by mutableStateOf<ForgeVersion?>(null)
-    var neoforgeVersion by mutableStateOf<NeoForgeVersion?>(null)
-    var fabricVersion by mutableStateOf<FabricVersion?>(null)
-    var fabricAPIVersion by mutableStateOf<ModVersion?>(null)
-    var quiltVersion by mutableStateOf<QuiltVersion?>(null)
-    var quiltAPIVersion by mutableStateOf<ModVersion?>(null)
-
-    //加载状态
-    var optifineState by mutableStateOf<AddonState>(AddonState.None)
-    var forgeState by mutableStateOf<AddonState>(AddonState.None)
-    var neoforgeState by mutableStateOf<AddonState>(AddonState.None)
-    var fabricState by mutableStateOf<AddonState>(AddonState.None)
-    var fabricAPIState by mutableStateOf<AddonState>(AddonState.None)
-    var quiltState by mutableStateOf<AddonState>(AddonState.None)
-    var quiltAPIState by mutableStateOf<AddonState>(AddonState.None)
-
-    //不兼容列表 利用Set集合不可重复
-    var incompatibleWithOptiFine by mutableStateOf<Set<ModLoader>>(emptySet())
-    var incompatibleWithForge by mutableStateOf<Set<ModLoader>>(emptySet())
-    var incompatibleWithNeoForge by mutableStateOf<Set<ModLoader>>(emptySet())
-    var incompatibleWithFabric by mutableStateOf<Set<ModLoader>>(emptySet())
-    var incompatibleWithFabricAPI by mutableStateOf<Set<ModLoader>>(emptySet())
-    var incompatibleWithQuilt by mutableStateOf<Set<ModLoader>>(emptySet())
-    var incompatibleWithQuiltAPI by mutableStateOf<Set<ModLoader>>(emptySet())
-}
 
 private class AddonsViewModel(
-    private val gameVersion: String
+    private val gameVersion: String,
+    loaderSupports: LoaderVerSupports
 ) : ViewModel() {
     val addonList = AddonList()
     val currentAddon = CurrentAddon()
@@ -157,7 +131,33 @@ private class AddonsViewModel(
     fun reloadFabricAPI() = launchAddonReload(
         { currentAddon.fabricAPIState = it },
         { FabricAPIVersions.fetchVersionList(gameVersion) },
-        { addonList.fabricAPIList = it }
+        {
+            addonList.fabricAPIList = it
+            //检查用户是否已经选择了 Fabric Loader
+            if (currentAddon.fabricVersion.value != null) {
+                //如果已经选择，这里将会自动选择 Fabric API
+                currentAddon.fabricAPIVersion.value = it?.firstOrNull()
+            }
+        }
+    )
+
+    fun reloadLegacyFabric() = launchAddonReload(
+        { currentAddon.legacyFabricState = it },
+        { LegacyFabricVersions.fetchFabricLoaderList(gameVersion) },
+        { addonList.legacyFabricList = it }
+    )
+
+    fun reloadLegacyFabricAPI() = launchAddonReload(
+        { currentAddon.legacyFabricAPIState = it },
+        { LegacyFabricAPIVersions.fetchVersionList(gameVersion) },
+        {
+            addonList.legacyFabricAPIList = it
+            //检查用户是否已经选择了 Legacy Fabric
+            if (currentAddon.legacyFabricVersion.value != null) {
+                //如果已经选择，这里将会自动选择 Legacy Fabric API
+                currentAddon.legacyFabricAPIVersion.value = it?.firstOrNull()
+            }
+        }
     )
 
     fun reloadQuilt() = launchAddonReload(
@@ -169,7 +169,20 @@ private class AddonsViewModel(
     fun reloadQuiltAPI() = launchAddonReload(
         { currentAddon.quiltAPIState = it },
         { QuiltAPIVersions.fetchVersionList(gameVersion) },
-        { addonList.quiltAPIList = it }
+        {
+            addonList.quiltAPIList = it
+            //检查用户是否已经选择了 Quilt Loader
+            if (currentAddon.quiltVersion.value != null) {
+                //如果已经选择，这里将会自动选择 Quilted Fabric API
+                currentAddon.quiltAPIVersion.value = it?.firstOrNull()
+            }
+        }
+    )
+
+    fun reloadCleanroom() = launchAddonReload(
+        { currentAddon.cleanroomState = it },
+        { CleanroomVersions.fetchLoaderList(gameVersion) },
+        { addonList.cleanroomList = it }
     )
 
     private fun <T> launchAddonReload(
@@ -182,58 +195,27 @@ private class AddonsViewModel(
         }
     }
 
-    private suspend fun <T> runWithState(
-        updateState: (AddonState) -> Unit,
-        block: suspend () -> T?
-    ): T? {
-        updateState(AddonState.Loading)
-        return runCatching {
-            block().also {
-                updateState(AddonState.None)
-            }
-        }.onFailure { e ->
-            val state = when (e) {
-                is ResponseTooShortException -> {
-                    //忽略，判定为不可用
-                    AddonState.None
-                }
-                is HttpRequestTimeoutException -> AddonState.Error(R.string.error_timeout)
-                is UnknownHostException, is UnresolvedAddressException -> {
-                    AddonState.Error(R.string.error_network_unreachable)
-                }
-                is ConnectException -> {
-                    AddonState.Error(R.string.error_connection_failed)
-                }
-                is SerializationException -> {
-                    AddonState.Error(R.string.error_parse_failed)
-                }
-                is ResponseException -> {
-                    val statusCode = e.response.status
-                    val res = when (statusCode) {
-                        HttpStatusCode.Unauthorized -> R.string.error_unauthorized
-                        HttpStatusCode.NotFound -> R.string.error_notfound
-                        else -> R.string.error_client_error
-                    }
-                    AddonState.Error(res, arrayOf(statusCode))
-                }
-                else -> {
-                    lError("An unknown exception was caught!", e)
-                    val errorMessage = e.localizedMessage ?: e.message ?: e::class.qualifiedName ?: "Unknown error"
-                    AddonState.Error(R.string.error_unknown, arrayOf(errorMessage))
-                }
-            }
-            updateState(state)
-        }.getOrNull()
-    }
-
     init {
         reloadOptiFine()
         reloadForge()
-        reloadNeoForge()
-        reloadFabric()
-        reloadFabricAPI()
-        reloadQuilt()
-        reloadQuiltAPI()
+        if (loaderSupports.isNeoForgeSupports) {
+            reloadNeoForge()
+        }
+        if (loaderSupports.isFabricSupports) {
+            reloadFabric()
+            reloadFabricAPI()
+        }
+        if (loaderSupports.isLegacyFabricSupports) {
+            reloadLegacyFabric()
+            reloadLegacyFabricAPI()
+        }
+        if (loaderSupports.isQuiltSupports) {
+            reloadQuilt()
+            reloadQuiltAPI()
+        }
+        if (loaderSupports.isCleanroomSupports) {
+            reloadCleanroom()
+        }
     }
 
     override fun onCleared() {
@@ -241,18 +223,25 @@ private class AddonsViewModel(
     }
 }
 
+/**
+ * 下载游戏页面（选择附加内容）
+ * @param refreshErrorCheck 刷新版本名称错误检查
+ */
 @Composable
 fun DownloadGameWithAddonScreen(
-    mainScreenKey: NavKey?,
-    downloadScreenKey: NavKey?,
-    downloadGameScreenKey: NavKey?,
+    mainScreenKey: TitledNavKey?,
+    downloadScreenKey: TitledNavKey?,
+    downloadGameScreenKey: TitledNavKey?,
     key: NormalNavKey.DownloadGame.Addons,
+    refreshErrorCheck: Any? = null,
     onInstall: (GameDownloadInfo) -> Unit = {}
 ) {
+    val loaderSupports = rememberLoaderVerSupports(key.gameVersion)
+
     val viewModel = viewModel(
-        key = key.toString()
+        key = key.toString() + "_" + loaderSupports
     ) {
-        AddonsViewModel(key.gameVersion)
+        AddonsViewModel(key.gameVersion, loaderSupports)
     }
 
     BaseScreen(
@@ -272,30 +261,40 @@ fun DownloadGameWithAddonScreen(
                 .fillMaxSize()
                 .offset { IntOffset(x = 0, y = yOffset.roundToPx()) }
         ) {
-            val itemContainerColor = itemLayoutColor()
-            val itemContentColor = MaterialTheme.colorScheme.onSurface
-
             ScreenHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp),
-                itemContainerColor = itemContainerColor,
-                itemContentColor = itemContentColor,
+                itemContainerColor = cardColor(),
+                itemContentColor = onCardColor(),
                 gameVersion = key.gameVersion,
                 currentAddon = viewModel.currentAddon,
                 refreshIcon = viewModel.refreshIcon,
+                refreshErrorCheck = refreshErrorCheck,
                 onInstall = { customVersionName ->
                     onInstall(
                         GameDownloadInfo(
                             gameVersion = key.gameVersion,
                             customVersionName = customVersionName,
-                            optifine = viewModel.currentAddon.optifineVersion,
-                            forge = viewModel.currentAddon.forgeVersion,
-                            neoforge = viewModel.currentAddon.neoforgeVersion,
-                            fabric = viewModel.currentAddon.fabricVersion,
-                            fabricAPI = viewModel.currentAddon.fabricAPIVersion,
-                            quilt = viewModel.currentAddon.quiltVersion,
-                            quiltAPI = viewModel.currentAddon.quiltAPIVersion
+                            overwrite = isVersionExists(customVersionName, true),
+                            optifine = viewModel.currentAddon.optifineVersion.value,
+                            forge = viewModel.currentAddon.forgeVersion.value,
+                            neoforge = viewModel.currentAddon.neoforgeVersion.value
+                                .takeIf { loaderSupports.isNeoForgeSupports },
+                            fabric = viewModel.currentAddon.fabricVersion.value
+                                .takeIf { loaderSupports.isFabricSupports },
+                            fabricAPI = viewModel.currentAddon.fabricAPIVersion.value
+                                .takeIf { loaderSupports.isFabricSupports },
+                            legacyFabric = viewModel.currentAddon.legacyFabricVersion.value
+                                .takeIf { loaderSupports.isLegacyFabricSupports },
+                            legacyFabricAPI = viewModel.currentAddon.legacyFabricAPIVersion.value
+                                .takeIf { loaderSupports.isLegacyFabricSupports },
+                            quilt = viewModel.currentAddon.quiltVersion.value
+                                .takeIf { loaderSupports.isQuiltSupports },
+                            quiltAPI = viewModel.currentAddon.quiltAPIVersion.value
+                                .takeIf { loaderSupports.isQuiltSupports },
+                            cleanroom = viewModel.currentAddon.cleanroomVersion.value
+                                .takeIf { loaderSupports.isCleanroomSupports }
                         )
                     )
                 }
@@ -304,7 +303,7 @@ fun DownloadGameWithAddonScreen(
             AnimatedColumn(
                 modifier = Modifier
                     .padding(horizontal = 12.dp)
-                    .verticalScroll(state = rememberScrollState()),
+                    .verticalScrollWithBar(state = rememberScrollState()),
                 isVisible = isVisible
             ) { scope ->
                 Spacer(Modifier)
@@ -313,7 +312,7 @@ fun DownloadGameWithAddonScreen(
                     OptiFineList(
                         modifier = Modifier.offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
                         currentAddon = viewModel.currentAddon,
-                        refreshIcon = { viewModel.refreshIcon() },
+                        onValueChanged = { viewModel.refreshIcon() },
                         addonList = viewModel.addonList
                     ) { viewModel.reloadOptiFine() }
                 }
@@ -322,54 +321,215 @@ fun DownloadGameWithAddonScreen(
                     ForgeList(
                         modifier = Modifier.offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
                         currentAddon = viewModel.currentAddon,
-                        refreshIcon = { viewModel.refreshIcon() },
+                        onValueChanged = { viewModel.refreshIcon() },
                         addonList = viewModel.addonList
                     ) { viewModel.reloadForge() }
                 }
 
-                AnimatedItem(scope) { yOffset ->
-                    NeoForgeList(
-                        modifier = Modifier.offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
-                        currentAddon = viewModel.currentAddon,
-                        refreshIcon = { viewModel.refreshIcon() },
-                        addonList = viewModel.addonList
-                    ) { viewModel.reloadNeoForge() }
+                if (loaderSupports.isNeoForgeSupports) {
+                    AnimatedItem(scope) { yOffset ->
+                        NeoForgeList(
+                            modifier = Modifier.offset {
+                                IntOffset(
+                                    x = 0,
+                                    y = yOffset.roundToPx()
+                                )
+                            },
+                            currentAddon = viewModel.currentAddon,
+                            onValueChanged = { viewModel.refreshIcon() },
+                            addonList = viewModel.addonList
+                        ) { viewModel.reloadNeoForge() }
+                    }
                 }
 
-                AnimatedItem(scope) { yOffset ->
-                    FabricList(
-                        modifier = Modifier.offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
-                        currentAddon = viewModel.currentAddon,
-                        refreshIcon = { viewModel.refreshIcon() },
-                        addonList = viewModel.addonList
-                    ) { viewModel.reloadFabric() }
+                if (loaderSupports.isCleanroomSupports) {
+                    AnimatedItem(scope) { yOffset ->
+                        CleanroomList(
+                            modifier = Modifier.offset {
+                                IntOffset(
+                                    x = 0,
+                                    y = yOffset.roundToPx()
+                                )
+                            },
+                            currentAddon = viewModel.currentAddon,
+                            onValueChanged = { viewModel.refreshIcon() },
+                            addonList = viewModel.addonList
+                        ) { viewModel.reloadCleanroom() }
+                    }
                 }
 
-                AnimatedItem(scope) { yOffset ->
-                    FabricAPIList(
-                        modifier = Modifier.offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
-                        currentAddon = viewModel.currentAddon,
-                        refreshIcon = { viewModel.refreshIcon() },
-                        addonList = viewModel.addonList
-                    ) { viewModel.reloadFabricAPI() }
+                if (loaderSupports.isFabricSupports) {
+                    AnimatedItem(scope) { yOffset ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
+                        ) {
+                            val isFabricAPIWarning =
+                                viewModel.currentAddon.fabricVersion.value != null &&
+                                        viewModel.currentAddon.fabricAPIState == AddonState.None &&
+                                        !viewModel.addonList.fabricAPIList.isNullOrEmpty() &&
+                                        viewModel.currentAddon.fabricAPIVersion.value == null
+
+                            AnimatedVisibility(
+                                visible = isFabricAPIWarning
+                            ) {
+                                AddonWarningItem(
+                                    modifier = Modifier.padding(bottom = 12.dp),
+                                    text = stringResource(
+                                        R.string.download_game_addon_warning_api,
+                                        ModLoader.FABRIC_API.displayName
+                                    )
+                                )
+                            }
+
+                            FabricList(
+                                modifier = Modifier.fillMaxWidth(),
+                                currentAddon = viewModel.currentAddon,
+                                onValueChanged = { version ->
+                                    viewModel.refreshIcon()
+                                    //如果用户手动选择了 Fabric
+                                    if (version != null) {
+                                        //这里将会自动选择最新的 Fabric API
+                                        val lastAPIVersion =
+                                            viewModel.addonList.fabricAPIList?.firstOrNull()
+                                        viewModel.currentAddon.fabricAPIVersion.value = lastAPIVersion
+                                    }
+                                },
+                                addonList = viewModel.addonList
+                            ) { viewModel.reloadFabric() }
+                        }
+                    }
+
+                    AnimatedItem(scope) { yOffset ->
+                        FabricAPIList(
+                            modifier = Modifier.offset {
+                                IntOffset(
+                                    x = 0,
+                                    y = yOffset.roundToPx()
+                                )
+                            },
+                            currentAddon = viewModel.currentAddon,
+                            onValueChanged = { viewModel.refreshIcon() },
+                            addonList = viewModel.addonList
+                        ) { viewModel.reloadFabricAPI() }
+                    }
                 }
 
-                AnimatedItem(scope) { yOffset ->
-                    QuiltList(
-                        modifier = Modifier.offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
-                        currentAddon = viewModel.currentAddon,
-                        refreshIcon = { viewModel.refreshIcon() },
-                        addonList = viewModel.addonList
-                    ) { viewModel.reloadQuilt() }
+                if (loaderSupports.isLegacyFabricSupports) {
+                    AnimatedItem(scope) { yOffset ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
+                        ) {
+                            val isFabricAPIWarning =
+                                viewModel.currentAddon.legacyFabricVersion.value != null &&
+                                        viewModel.currentAddon.legacyFabricAPIState == AddonState.None &&
+                                        !viewModel.addonList.legacyFabricAPIList.isNullOrEmpty() &&
+                                        viewModel.currentAddon.legacyFabricAPIVersion.value == null
+
+                            AnimatedVisibility(
+                                visible = isFabricAPIWarning
+                            ) {
+                                AddonWarningItem(
+                                    modifier = Modifier.padding(bottom = 12.dp),
+                                    text = stringResource(
+                                        R.string.download_game_addon_warning_api,
+                                        ModLoader.LEGACY_FABRIC_API.displayName
+                                    )
+                                )
+                            }
+
+                            LegacyFabricList(
+                                modifier = Modifier.fillMaxWidth(),
+                                currentAddon = viewModel.currentAddon,
+                                onValueChanged = { version ->
+                                    viewModel.refreshIcon()
+                                    //如果用户手动选择了 Legacy Fabric
+                                    if (version != null) {
+                                        //这里将会自动选择最新的 Legacy Fabric API
+                                        val lastAPIVersion =
+                                            viewModel.addonList.legacyFabricAPIList?.firstOrNull()
+                                        viewModel.currentAddon.legacyFabricAPIVersion.value = lastAPIVersion
+                                    }
+                                },
+                                addonList = viewModel.addonList
+                            ) { viewModel.reloadLegacyFabric() }
+                        }
+                    }
+
+                    AnimatedItem(scope) { yOffset ->
+                        LegacyFabricAPIList(
+                            modifier = Modifier.offset {
+                                IntOffset(
+                                    x = 0,
+                                    y = yOffset.roundToPx()
+                                )
+                            },
+                            currentAddon = viewModel.currentAddon,
+                            onValueChanged = { viewModel.refreshIcon() },
+                            addonList = viewModel.addonList
+                        ) { viewModel.reloadLegacyFabricAPI() }
+                    }
                 }
 
-                AnimatedItem(scope) { yOffset ->
-                    QuiltAPIList(
-                        modifier = Modifier.offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
-                        currentAddon = viewModel.currentAddon,
-                        refreshIcon = { viewModel.refreshIcon() },
-                        addonList = viewModel.addonList
-                    ) { viewModel.reloadQuiltAPI() }
+                if (loaderSupports.isQuiltSupports) {
+                    AnimatedItem(scope) { yOffset ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset { IntOffset(x = 0, y = yOffset.roundToPx()) },
+                        ) {
+                            val isQuiltAPIWarning =
+                                viewModel.currentAddon.quiltVersion.value != null &&
+                                        viewModel.currentAddon.quiltAPIState == AddonState.None &&
+                                        !viewModel.addonList.quiltAPIList.isNullOrEmpty() &&
+                                        viewModel.currentAddon.quiltAPIVersion.value == null
+
+                            AnimatedVisibility(
+                                visible = isQuiltAPIWarning
+                            ) {
+                                AddonWarningItem(
+                                    modifier = Modifier.padding(bottom = 12.dp),
+                                    text = stringResource(
+                                        R.string.download_game_addon_warning_api,
+                                        ModLoader.QUILT_API.displayName
+                                    )
+                                )
+                            }
+
+                            QuiltList(
+                                modifier = Modifier.fillMaxWidth(),
+                                currentAddon = viewModel.currentAddon,
+                                onValueChanged = { version ->
+                                    viewModel.refreshIcon()
+                                    //如果用户手动选择了 Quilt
+                                    if (version != null) {
+                                        //这里将会自动选择最新的 Quilted Fabric API
+                                        val lastAPIVersion =
+                                            viewModel.addonList.quiltAPIList?.firstOrNull()
+                                        viewModel.currentAddon.quiltAPIVersion.value = lastAPIVersion
+                                    }
+                                },
+                                addonList = viewModel.addonList
+                            ) { viewModel.reloadQuilt() }
+                        }
+                    }
+
+                    AnimatedItem(scope) { yOffset ->
+                        QuiltAPIList(
+                            modifier = Modifier.offset {
+                                IntOffset(
+                                    x = 0,
+                                    y = yOffset.roundToPx()
+                                )
+                            },
+                            currentAddon = viewModel.currentAddon,
+                            onValueChanged = { viewModel.refreshIcon() },
+                            addonList = viewModel.addonList
+                        ) { viewModel.reloadQuiltAPI() }
+                    }
                 }
 
                 Spacer(Modifier)
@@ -386,6 +546,7 @@ private fun ScreenHeader(
     gameVersion: String,
     currentAddon: CurrentAddon,
     refreshIcon: Any? = null,
+    refreshErrorCheck: Any? = null,
     onInstall: (String) -> Unit = {}
 ) {
     Column(modifier = modifier) {
@@ -411,14 +572,19 @@ private fun ScreenHeader(
                 }
             )
 
-            var errorMessage by remember { mutableStateOf("") }
+            val emptyError = stringResource(R.string.generic_cannot_empty)
+            val overwriteMessage = stringResource(R.string.download_game_version_overwrite, nameValue)
 
-            val isError = nameValue.isEmpty().also {
-                errorMessage = stringResource(R.string.generic_cannot_empty)
-            } || isFilenameInvalid(nameValue) { message ->
-                errorMessage = message
-            } || VersionsManager.validateVersionName(nameValue, null) { message ->
-                errorMessage = message
+            val filenameInvalidMessage = key(nameValue) {
+                isFilenameInvalid(nameValue)
+            }
+            val isVersionOverwrite = remember(nameValue) {
+                //如果目标版本存在，则使用覆盖安装的方式进行安装
+                isVersionExists(nameValue, true)
+            }
+
+            val isError = remember(nameValue, refreshErrorCheck) {
+                nameValue.isEmpty() || filenameInvalidMessage != null
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -452,15 +618,79 @@ private fun ScreenHeader(
                     }
                 )
 
-                if (isError) {
+                if (isError || isVersionOverwrite) {
+                    val message = if (isError) {
+                        filenameInvalidMessage ?: emptyError
+                    } else {
+                        overwriteMessage
+                    }
+
                     Text(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp),
-                        text = errorMessage,
-                        color = MaterialTheme.colorScheme.error,
+                        text = message,
+                        color = if (isError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
                         style = MaterialTheme.typography.labelMedium
                     )
+                }
+            }
+
+            val versions by VersionsManager.versions.collectAsStateWithLifecycle()
+            if (versions.isNotEmpty()) {
+                Row {
+                    //不使用viewModel存储，防止版本刷新这里状态不同步
+                    var showMenu by remember { mutableStateOf(false) }
+                    //选择要覆盖安装的版本
+                    IconButton(
+                        onClick = {
+                            showMenu = true
+                        }
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                if (showMenu) {
+                                    R.drawable.ic_menu_open
+                                } else {
+                                    R.drawable.ic_menu
+                                }
+                            ),
+                            contentDescription = stringResource(R.string.download_game_version_overwrite_select)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        //一个提醒用的Text
+                        Text(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            text = stringResource(R.string.download_game_version_overwrite_select_subtitle),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+
+                        versions.forEach { version ->
+                            DropdownMenuItem(
+                                text = {
+                                    CommonVersionInfoLayout(
+                                        modifier = Modifier.weight(1f),
+                                        version = version
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    //直接更新当前编辑的名称
+                                    nameValue = version.getVersionName()
+                                    editedByUser = true //也算是用户编辑了，不过目的是防止选择加载器被覆盖
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -469,13 +699,10 @@ private fun ScreenHeader(
                     if (!isError) {
                         onInstall(nameValue)
                     }
-                },
-                colors = IconButtonDefaults.iconButtonColors(
-                    contentColor = itemContentColor
-                )
+                }
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Download,
+                    painter = painterResource(R.drawable.ic_download_2_filled),
                     contentDescription = stringResource(R.string.download_install)
                 )
             }
@@ -483,7 +710,7 @@ private fun ScreenHeader(
 
         HorizontalDivider(
             modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
         )
     }
 }
@@ -496,12 +723,14 @@ private fun VersionIconPreview(
 ) {
     val iconRes = remember(refreshIcon) {
         when {
-            currentAddon.optifineVersion != null && currentAddon.forgeVersion != null -> R.drawable.img_anvil //OptiFine & Forge 同时选择
-            currentAddon.optifineVersion != null -> R.drawable.img_loader_optifine
-            currentAddon.forgeVersion != null -> R.drawable.img_anvil
-            currentAddon.neoforgeVersion != null -> R.drawable.img_loader_neoforge
-            currentAddon.fabricVersion != null -> R.drawable.img_loader_fabric
-            currentAddon.quiltVersion != null -> R.drawable.img_loader_quilt
+            currentAddon.optifineVersion.value != null && currentAddon.forgeVersion.value != null -> R.drawable.img_anvil //OptiFine & Forge 同时选择
+            currentAddon.optifineVersion.value != null -> R.drawable.img_loader_optifine
+            currentAddon.forgeVersion.value != null -> R.drawable.img_anvil
+            currentAddon.neoforgeVersion.value != null -> R.drawable.img_loader_neoforge
+            currentAddon.fabricVersion.value != null -> R.drawable.img_loader_fabric
+            currentAddon.legacyFabricVersion.value != null -> R.drawable.img_loader_legacy_fabric
+            currentAddon.quiltVersion.value != null -> R.drawable.img_loader_quilt
+            currentAddon.cleanroomVersion.value != null -> R.drawable.img_loader_cleanroom
             else -> R.drawable.img_minecraft
         }
     }
@@ -524,484 +753,44 @@ private fun AutoChangeVersionName(
     editedByUser: Boolean,
     changeValue: (String) -> Unit = {}
 ) {
-    fun getOptiFine(optifine: OptiFineVersion) = "${ModLoader.OPTIFINE.displayName} ${optifine.realVersion}"
-    fun getForge(forge: ForgeVersion) = "${ModLoader.FORGE.displayName} ${forge.versionName}"
-
     LaunchedEffect(
-        currentAddon.optifineVersion,
-        currentAddon.forgeVersion,
-        currentAddon.neoforgeVersion,
-        currentAddon.fabricVersion,
-        currentAddon.quiltVersion
+        currentAddon.optifineVersion.value,
+        currentAddon.forgeVersion.value,
+        currentAddon.neoforgeVersion.value,
+        currentAddon.fabricVersion.value,
+        currentAddon.legacyFabricVersion.value,
+        currentAddon.quiltVersion.value,
+        currentAddon.cleanroomVersion.value,
     ) {
-        if (editedByUser) return@LaunchedEffect //用户已修改，阻止自动更改
+        if (editedByUser) return@LaunchedEffect
 
-        val modloaderValue = when {
-            currentAddon.optifineVersion != null && currentAddon.forgeVersion != null -> {
-                //OptiFine & Forge 同时选择
-                val forge = getForge(currentAddon.forgeVersion!!)
-                val optifine = getOptiFine(currentAddon.optifineVersion!!)
-                "$forge-$optifine"
-            }
-            currentAddon.optifineVersion != null -> getOptiFine(currentAddon.optifineVersion!!)
-            currentAddon.forgeVersion != null -> getForge(currentAddon.forgeVersion!!)
-            currentAddon.neoforgeVersion != null -> "${ModLoader.NEOFORGE.displayName} ${currentAddon.neoforgeVersion!!.versionName}"
-            currentAddon.fabricVersion != null -> "${ModLoader.FABRIC.displayName} ${currentAddon.fabricVersion!!.version}"
-            currentAddon.quiltVersion != null -> "${ModLoader.QUILT.displayName} ${currentAddon.quiltVersion!!.version}"
-            else -> null
-        }
+        fun formatModloader(name: String, version: String) = "$name $version"
+        fun formatOptiFine(optifine: OptiFineVersion) = formatModloader(ModLoader.OPTIFINE.displayName, optifine.realVersion)
+        fun formatForge(forge: ForgeVersion) = formatModloader(ModLoader.FORGE.displayName, forge.versionName)
 
-        changeValue(modloaderValue?.let { "$gameVersion $it" } ?: gameVersion)
-    }
-}
-
-@Composable
-private fun OptiFineList(
-    modifier: Modifier = Modifier,
-    currentAddon: CurrentAddon,
-    addonList: AddonList,
-    refreshIcon: () -> Unit,
-    onReload: () -> Unit = {}
-) {
-    val items = remember(addonList.optifineList, currentAddon.forgeVersion) {
-        addonList.optifineList?.filter { version ->
-            currentAddon.forgeVersion?.let { forgeVersion ->
-                isOptiFineCompatibleWithForge(version, forgeVersion)
-            } ?: true
-        }
-    }
-
-    AddonListLayout(
-        modifier = modifier,
-        state = currentAddon.optifineState,
-        title = ModLoader.OPTIFINE.displayName,
-        iconPainter = painterResource(R.drawable.img_loader_optifine),
-        items = items,
-        current = currentAddon.optifineVersion,
-        incompatibleSet = currentAddon.incompatibleWithOptiFine,
-        checkIncompatible = {
-            val ofType = listOf(ModLoader.OPTIFINE)
-            currentAddon.optifineVersion?.let { version ->
-                val forgeVersion = currentAddon.forgeVersion
-                //检查与 Forge 的兼容性
-                if (forgeVersion != null) {
-                    if (isOptiFineCompatibleWithForge(version, forgeVersion)) {
-                        currentAddon.incompatibleWithForge -= ofType
-                    } else {
-                        currentAddon.incompatibleWithForge += ofType
-                        currentAddon.forgeVersion = null
+        val modloaderValue = buildString {
+            with(currentAddon) {
+                when {
+                    optifineVersion.value != null && forgeVersion.value != null -> {
+                        append(formatForge(forgeVersion.value!!))
+                        append('-')
+                        append(formatOptiFine(optifineVersion.value!!))
                     }
-                } else {
-                    if (isOptiFineCompatibleWithForgeList(version, addonList.forgeList)) {
-                        currentAddon.incompatibleWithForge -= ofType
-                    } else {
-                        currentAddon.incompatibleWithForge += ofType
-                        currentAddon.forgeVersion = null
+                    optifineVersion.value != null -> append(formatOptiFine(optifineVersion.value!!))
+                    forgeVersion.value != null -> append(formatForge(forgeVersion.value!!))
+                    neoforgeVersion.value != null -> append(formatModloader(ModLoader.NEOFORGE.displayName, neoforgeVersion.value!!.versionName))
+                    fabricVersion.value != null -> append(formatModloader(ModLoader.FABRIC.displayName, fabricVersion.value!!.version))
+                    legacyFabricVersion.value != null -> append(formatModloader(ModLoader.LEGACY_FABRIC.displayName, legacyFabricVersion.value!!.version))
+                    quiltVersion.value != null -> append(formatModloader(ModLoader.QUILT.displayName, quiltVersion.value!!.version))
+                    cleanroomVersion.value != null -> append(formatModloader(ModLoader.CLEANROOM.displayName, cleanroomVersion.value!!.version))
+                    else -> {
+                        changeValue(gameVersion)
+                        return@LaunchedEffect
                     }
                 }
-                currentAddon.neoforgeVersion = null
-                currentAddon.fabricVersion = null
-                currentAddon.quiltVersion = null
-                currentAddon.incompatibleWithNeoForge += ofType
-                currentAddon.incompatibleWithFabric += ofType
-                currentAddon.incompatibleWithFabricAPI += ofType
-                currentAddon.incompatibleWithQuilt += ofType
-                currentAddon.incompatibleWithQuiltAPI += ofType
-            } ?: run {
-                currentAddon.incompatibleWithForge -= ofType
-                currentAddon.incompatibleWithNeoForge -= ofType
-                currentAddon.incompatibleWithFabric -= ofType
-                currentAddon.incompatibleWithFabricAPI -= ofType
-                currentAddon.incompatibleWithQuilt -= ofType
-                currentAddon.incompatibleWithQuiltAPI -= ofType
             }
-        },
-        triggerCheckIncompatible = arrayOf(currentAddon.forgeState),
-        getItemText = { it.displayName },
-        summary = { OptiFineVersionSummary(it) },
-        onValueChange = { version ->
-            currentAddon.optifineVersion = version
-            refreshIcon()
-        },
-        onReload = onReload
-    )
-}
-
-@Composable
-private fun ForgeList(
-    modifier: Modifier = Modifier,
-    currentAddon: CurrentAddon,
-    addonList: AddonList,
-    refreshIcon: () -> Unit,
-    onReload: () -> Unit = {}
-) {
-    val items = addonList.forgeList?.filter { version ->
-        //选择 OptiFine 之后，根据 OptiFine 需求的 Forge 版本进行过滤
-        currentAddon.optifineVersion?.let { optifineVersion ->
-            isOptiFineCompatibleWithForge(optifineVersion, version)
-        } ?: true
-    }
-
-    AddonListLayout(
-        modifier = modifier,
-        state = currentAddon.forgeState,
-        title = ModLoader.FORGE.displayName,
-        iconPainter = painterResource(R.drawable.img_anvil),
-        items = items,
-        current = currentAddon.forgeVersion,
-        incompatibleSet = currentAddon.incompatibleWithForge,
-        checkIncompatible = {
-            val forgeType = listOf(ModLoader.FORGE)
-            currentAddon.forgeVersion?.let { version ->
-                val optiFineVersion = currentAddon.optifineVersion
-                //检查与 OptiFine 的兼容性
-                if (optiFineVersion != null) {
-                    if (isOptiFineCompatibleWithForge(optiFineVersion, version)) {
-                        currentAddon.incompatibleWithOptiFine -= forgeType
-                    } else {
-                        currentAddon.incompatibleWithOptiFine += forgeType
-                        currentAddon.optifineVersion = null
-                    }
-                } else {
-                    if (isForgeCompatibleWithOptiFineList(version, addonList.optifineList)) {
-                        currentAddon.incompatibleWithForge -= forgeType
-                    } else {
-                        currentAddon.incompatibleWithOptiFine += forgeType
-                        currentAddon.optifineVersion = null
-                    }
-                }
-                currentAddon.neoforgeVersion = null
-                currentAddon.fabricVersion = null
-                currentAddon.quiltVersion = null
-                currentAddon.incompatibleWithNeoForge += forgeType
-                currentAddon.incompatibleWithFabric += forgeType
-                currentAddon.incompatibleWithFabricAPI += forgeType
-                currentAddon.incompatibleWithQuilt += forgeType
-                currentAddon.incompatibleWithQuiltAPI += forgeType
-            } ?: run {
-                currentAddon.incompatibleWithOptiFine -= forgeType
-                currentAddon.incompatibleWithNeoForge -= forgeType
-                currentAddon.incompatibleWithFabric -= forgeType
-                currentAddon.incompatibleWithFabricAPI -= forgeType
-                currentAddon.incompatibleWithQuilt -= forgeType
-                currentAddon.incompatibleWithQuiltAPI -= forgeType
-            }
-        },
-        triggerCheckIncompatible = arrayOf(currentAddon.optifineState),
-        error = checkForgeCompatibilityError(addonList.forgeList),
-        getItemText = { it.versionName },
-        summary = { ForgeVersionSummary(it) },
-        onValueChange = { version ->
-            currentAddon.forgeVersion = version
-            refreshIcon()
-        },
-        onReload = onReload
-    )
-}
-
-@Composable
-private fun NeoForgeList(
-    modifier: Modifier = Modifier,
-    currentAddon: CurrentAddon,
-    addonList: AddonList,
-    refreshIcon: () -> Unit,
-    onReload: () -> Unit = {}
-) {
-    AddonListLayout(
-        modifier = modifier,
-        state = currentAddon.neoforgeState,
-        title = ModLoader.NEOFORGE.displayName,
-        iconPainter = painterResource(R.drawable.img_loader_neoforge),
-        items = addonList.neoforgeList,
-        current = currentAddon.neoforgeVersion,
-        incompatibleSet = currentAddon.incompatibleWithNeoForge,
-        checkIncompatible = {
-            val neoforgeType = listOf(ModLoader.NEOFORGE)
-            currentAddon.neoforgeVersion?.let { version ->
-                currentAddon.optifineVersion = null
-                currentAddon.forgeVersion = null
-                currentAddon.fabricVersion = null
-                currentAddon.quiltVersion = null
-                currentAddon.incompatibleWithOptiFine += neoforgeType
-                currentAddon.incompatibleWithForge += neoforgeType
-                currentAddon.incompatibleWithFabric += neoforgeType
-                currentAddon.incompatibleWithFabricAPI += neoforgeType
-                currentAddon.incompatibleWithQuilt += neoforgeType
-                currentAddon.incompatibleWithQuiltAPI += neoforgeType
-            } ?: run {
-                currentAddon.incompatibleWithOptiFine -= neoforgeType
-                currentAddon.incompatibleWithForge -= neoforgeType
-                currentAddon.incompatibleWithFabric -= neoforgeType
-                currentAddon.incompatibleWithFabricAPI -= neoforgeType
-                currentAddon.incompatibleWithQuilt -= neoforgeType
-                currentAddon.incompatibleWithQuiltAPI -= neoforgeType
-            }
-        },
-        getItemText = { it.versionName },
-        summary = { NeoForgeSummary(it) },
-        onValueChange = { version ->
-            currentAddon.neoforgeVersion = version
-            refreshIcon()
-        },
-        onReload = onReload
-    )
-}
-
-@Composable
-private fun FabricList(
-    modifier: Modifier = Modifier,
-    currentAddon: CurrentAddon,
-    addonList: AddonList,
-    refreshIcon: () -> Unit,
-    onReload: () -> Unit = {}
-) {
-    AddonListLayout(
-        modifier = modifier,
-        state = currentAddon.fabricState,
-        title = ModLoader.FABRIC.displayName,
-        iconPainter = painterResource(R.drawable.img_loader_fabric),
-        items = addonList.fabricList,
-        current = currentAddon.fabricVersion,
-        incompatibleSet = currentAddon.incompatibleWithFabric,
-        checkIncompatible = {
-            val fabricType = listOf(ModLoader.FABRIC)
-            currentAddon.fabricVersion?.let { version ->
-                currentAddon.optifineVersion = null
-                currentAddon.forgeVersion = null
-                currentAddon.neoforgeVersion = null
-                currentAddon.quiltVersion = null
-                currentAddon.incompatibleWithOptiFine += fabricType
-                currentAddon.incompatibleWithForge += fabricType
-                currentAddon.incompatibleWithNeoForge += fabricType
-                currentAddon.incompatibleWithQuilt += fabricType
-                currentAddon.incompatibleWithQuiltAPI += fabricType
-            } ?: run {
-                currentAddon.incompatibleWithOptiFine -= fabricType
-                currentAddon.incompatibleWithForge -= fabricType
-                currentAddon.incompatibleWithNeoForge -= fabricType
-                currentAddon.incompatibleWithQuilt -= fabricType
-                currentAddon.incompatibleWithQuiltAPI -= fabricType
-            }
-        },
-        getItemText = { it.version },
-        summary = { FabricLikeSummary(it) },
-        onValueChange = { version ->
-            currentAddon.fabricVersion = version
-            refreshIcon()
-        },
-        onReload = onReload
-    )
-}
-
-@Composable
-private fun FabricAPIList(
-    modifier: Modifier = Modifier,
-    currentAddon: CurrentAddon,
-    requestString: String = stringResource(R.string.download_game_addon_request_addon, ModLoader.FABRIC.displayName),
-    addonList: AddonList,
-    refreshIcon: () -> Unit,
-    onReload: () -> Unit = {}
-) {
-    val unSelectedFabric = remember(currentAddon.fabricVersion) {
-        when {
-            currentAddon.fabricVersion == null -> {
-                currentAddon.fabricAPIVersion = null
-                requestString
-            }
-            else -> null
         }
-    }
 
-    AddonListLayout(
-        modifier = modifier,
-        state = currentAddon.fabricAPIState,
-        title = ModLoader.FABRIC_API.displayName,
-        iconPainter = painterResource(R.drawable.img_loader_fabric),
-        items = addonList.fabricAPIList,
-        current = currentAddon.fabricAPIVersion,
-        incompatibleSet = currentAddon.incompatibleWithFabricAPI,
-        checkIncompatible = {
-            val fabricType = listOf(ModLoader.FABRIC_API)
-            currentAddon.fabricAPIVersion?.let { version ->
-                currentAddon.optifineVersion = null
-                currentAddon.forgeVersion = null
-                currentAddon.neoforgeVersion = null
-                currentAddon.quiltVersion = null
-                currentAddon.incompatibleWithOptiFine += fabricType
-                currentAddon.incompatibleWithForge += fabricType
-                currentAddon.incompatibleWithNeoForge += fabricType
-                currentAddon.incompatibleWithQuilt += fabricType
-                currentAddon.incompatibleWithQuiltAPI += fabricType
-            } ?: run {
-                currentAddon.incompatibleWithOptiFine -= fabricType
-                currentAddon.incompatibleWithForge -= fabricType
-                currentAddon.incompatibleWithNeoForge -= fabricType
-                currentAddon.incompatibleWithQuilt -= fabricType
-                currentAddon.incompatibleWithQuiltAPI -= fabricType
-            }
-        },
-        error = unSelectedFabric,
-        getItemText = { it.displayName },
-        summary = { ModSummary(it) },
-        onValueChange = { version ->
-            currentAddon.fabricAPIVersion = version
-            refreshIcon()
-        },
-        onReload = onReload
-    )
-}
-
-@Composable
-private fun QuiltList(
-    modifier: Modifier = Modifier,
-    currentAddon: CurrentAddon,
-    addonList: AddonList,
-    refreshIcon: () -> Unit,
-    onReload: () -> Unit = {}
-) {
-    AddonListLayout(
-        modifier = modifier,
-        state = currentAddon.quiltState,
-        title = ModLoader.QUILT.displayName,
-        iconPainter = painterResource(R.drawable.img_loader_quilt),
-        items = addonList.quiltList,
-        current = currentAddon.quiltVersion,
-        incompatibleSet = currentAddon.incompatibleWithQuilt,
-        checkIncompatible = {
-            val quiltType = listOf(ModLoader.QUILT)
-            currentAddon.quiltVersion?.let { version ->
-                currentAddon.optifineVersion = null
-                currentAddon.forgeVersion = null
-                currentAddon.neoforgeVersion = null
-                currentAddon.fabricVersion = null
-                currentAddon.incompatibleWithOptiFine += quiltType
-                currentAddon.incompatibleWithForge += quiltType
-                currentAddon.incompatibleWithNeoForge += quiltType
-                currentAddon.incompatibleWithFabric += quiltType
-                currentAddon.incompatibleWithFabricAPI += quiltType
-            } ?: run {
-                currentAddon.incompatibleWithOptiFine -= quiltType
-                currentAddon.incompatibleWithForge -= quiltType
-                currentAddon.incompatibleWithNeoForge -= quiltType
-                currentAddon.incompatibleWithFabric -= quiltType
-                currentAddon.incompatibleWithFabricAPI -= quiltType
-            }
-        },
-        getItemText = { it.version },
-        summary = { FabricLikeSummary(it) },
-        onValueChange =  { version ->
-            currentAddon.quiltVersion = version
-            refreshIcon()
-        },
-        onReload = onReload
-    )
-}
-
-@Composable
-private fun QuiltAPIList(
-    modifier: Modifier = Modifier,
-    currentAddon: CurrentAddon,
-    requestString: String = stringResource(R.string.download_game_addon_request_addon, ModLoader.QUILT.displayName),
-    addonList: AddonList,
-    refreshIcon: () -> Unit,
-    onReload: () -> Unit = {}
-) {
-    val unSelectedQuilt = remember(currentAddon.quiltVersion) {
-        when {
-            currentAddon.quiltVersion == null -> {
-                currentAddon.quiltAPIVersion = null
-                requestString
-            }
-            else -> null
-        }
-    }
-
-    AddonListLayout(
-        modifier = modifier,
-        state = currentAddon.quiltAPIState,
-        title = ModLoader.QUILT_API.displayName,
-        iconPainter = painterResource(R.drawable.img_loader_quilt),
-        items = addonList.quiltAPIList,
-        current = currentAddon.quiltAPIVersion,
-        incompatibleSet = currentAddon.incompatibleWithQuiltAPI,
-        checkIncompatible = {
-            val quiltType = listOf(ModLoader.QUILT_API)
-            currentAddon.quiltAPIVersion?.let { version ->
-                currentAddon.optifineVersion = null
-                currentAddon.forgeVersion = null
-                currentAddon.neoforgeVersion = null
-                currentAddon.fabricVersion = null
-                currentAddon.incompatibleWithOptiFine += quiltType
-                currentAddon.incompatibleWithForge += quiltType
-                currentAddon.incompatibleWithNeoForge += quiltType
-                currentAddon.incompatibleWithFabric += quiltType
-                currentAddon.incompatibleWithFabricAPI += quiltType
-            } ?: run {
-                currentAddon.incompatibleWithOptiFine -= quiltType
-                currentAddon.incompatibleWithForge -= quiltType
-                currentAddon.incompatibleWithNeoForge -= quiltType
-                currentAddon.incompatibleWithFabric -= quiltType
-                currentAddon.incompatibleWithFabricAPI -= quiltType
-            }
-        },
-        error = unSelectedQuilt,
-        getItemText = { it.displayName },
-        summary = { ModSummary(it) },
-        onValueChange =  { version ->
-            currentAddon.quiltAPIVersion = version
-            refreshIcon()
-        },
-        onReload = onReload
-    )
-}
-
-private fun isOptiFineCompatibleWithForge(
-    optifine: OptiFineVersion,
-    forge: ForgeVersion
-): Boolean = optifine.forgeVersion?.let {
-    //空字符串表示兼容所有
-    it.isEmpty() || forge.forgeBuildVersion.compareOptiFineRequired(it)
-} ?: false //没有声明需要的 Forge 版本，视为不兼容
-
-private fun isOptiFineCompatibleWithForgeList(
-    optifine: OptiFineVersion,
-    forgeList: List<ForgeVersion>?
-): Boolean {
-                                    //没有声明需要的 Forge 版本，视为不兼容
-    val requiredVersion = optifine.forgeVersion ?: return false
-    return when {
-        requiredVersion.isEmpty() -> true //为空则表示不要求，兼容
-        else -> forgeList?.any {
-            it.forgeBuildVersion.compareOptiFineRequired(requiredVersion)
-        } == true
-    }
-}
-
-private fun isForgeCompatibleWithOptiFineList(
-    forge: ForgeVersion,
-    optifineList: List<OptiFineVersion>?
-): Boolean {
-    val forgeVersion = forge.forgeBuildVersion
-
-    optifineList?.forEach { optifine ->
-        val ofVersion = optifine.forgeVersion ?: return@forEach //null: 不兼容，跳过
-        if (ofVersion.isEmpty()) return true    //空字符串表示兼容所有
-        if (forgeVersion.compareOptiFineRequired(ofVersion)) return true
-    }
-
-    return false //没有匹配项
-}
-
-@Composable
-private fun checkForgeCompatibilityError(
-    forgeList: List<ForgeVersion>?
-): String? {
-    return when {
-        forgeList == null -> null //保持默认的“不可用”
-        forgeList.any { forgeVersion -> forgeVersion.category == "universal" || forgeVersion.category == "client" } -> {
-            //跳过无法自动安装的版本
-            stringResource(R.string.download_game_addon_not_installable)
-        }
-        else -> null
+        changeValue("$gameVersion $modloaderValue")
     }
 }

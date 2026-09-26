@@ -1,7 +1,26 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.download
 
-import com.movtery.zalithlauncher.game.addons.mirror.mapMirrorableUrls
+import com.movtery.zalithlauncher.game.addons.mirror.mapBMCLMirrorUrls
 import com.movtery.zalithlauncher.game.path.getAssetsHome
+import com.movtery.zalithlauncher.game.path.getGameHome
 import com.movtery.zalithlauncher.game.path.getLibrariesHome
 import com.movtery.zalithlauncher.game.path.getResourcesHome
 import com.movtery.zalithlauncher.game.path.getVersionsHome
@@ -13,6 +32,8 @@ import com.movtery.zalithlauncher.utils.classes.Quadruple
 import com.movtery.zalithlauncher.utils.file.ensureDirectory
 import com.movtery.zalithlauncher.utils.file.ensureParentDirectory
 import com.movtery.zalithlauncher.utils.string.isNotEmptyOrBlank
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.File
 
 const val DOWNLOADER_TAG = "MinecraftDownloader"
@@ -20,15 +41,16 @@ const val MINECRAFT_RES: String = "https://resources.download.minecraft.net/"
 
 /**
  * 设计为通用化 Minecraft 原版完整下载
+ * @param gameHome 下载目标所在的游戏目录
  */
 class BaseMinecraftDownloader(
-    private val verifyIntegrity: Boolean
+    gameHome: String = getGameHome()
 ) {
     //Dir
-    val assetsTarget = File(getAssetsHome()).ensureDirectory()
-    val resourcesTarget = File(getResourcesHome()).ensureDirectory()
-    val versionsTarget = File(getVersionsHome()).ensureDirectory()
-    val librariesTarget = File(getLibrariesHome()).ensureDirectory()
+    val assetsTarget = File(getAssetsHome(gameHome)).ensureDirectory()
+    val resourcesTarget = File(getResourcesHome(gameHome)).ensureDirectory()
+    val versionsTarget = File(getVersionsHome(gameHome)).ensureDirectory()
+    val librariesTarget = File(getLibrariesHome(gameHome)).ensureDirectory()
     val assetIndexTarget = File(assetsTarget, "indexes").ensureDirectory()
 
     suspend fun findVersion(version: String): Version? {
@@ -62,7 +84,6 @@ class BaseMinecraftDownloader(
             targetFile = getVersionJsonPath(targetVersion, mcFolder),
             url = version.url,
             expectedSHA = version.sha1,
-            verifyIntegrity = verifyIntegrity,
             classOfT = GameManifest::class.java
         )
     }
@@ -80,7 +101,6 @@ class BaseMinecraftDownloader(
                 targetFile = indexFile,
                 url = assetIndex.url,
                 expectedSHA = assetIndex.sha1,
-                verifyIntegrity = verifyIntegrity,
                 classOfT = AssetIndexJson::class.java
             )
         }
@@ -91,22 +111,28 @@ class BaseMinecraftDownloader(
         gameManifest: GameManifest,
         clientName: String,
         mcFolder: File = versionsTarget,
-        scheduleDownload: (urls: List<String>, hash: String?, targetFile: File, size: Long) -> Unit
+        scheduleDownload: (urls: List<String>, hash: String?, targetFile: File, size: Long) -> Unit,
+        scheduleCopy: (targetFile: File) -> Unit
     ) {
         val clientFile = getVersionJarPath(clientName, mcFolder)
         gameManifest.downloads?.client?.let { client ->
-            scheduleDownload(client.url.mapMirrorableUrls(), client.sha1, clientFile, client.size)
+            scheduleDownload(client.url.mapBMCLMirrorUrls(), client.sha1, clientFile, client.size)
+        } ?: run {
+            //如果未提供下载方式，则很可能是需要复制原版的Jar文件
+            scheduleCopy(clientFile)
         }
     }
 
     /** 计划assets资产下载 */
-    fun loadAssetsDownload(
+    suspend fun loadAssetsDownload(
         assetIndex: AssetIndexJson?,
         resourcesTargetDir: File = resourcesTarget,
         assetsTargetDir: File = assetsTarget,
         scheduleDownload: (urls: List<String>, hash: String?, targetFile: File, size: Long) -> Unit
     ) {
         assetIndex?.objects?.forEach { (path, objectInfo) ->
+            currentCoroutineContext().ensureActive()
+
             val hashedPath = "${objectInfo.hash.substring(0, 2)}/${objectInfo.hash}"
             val targetPath = if (assetIndex.isMapToResources) resourcesTargetDir else assetsTargetDir
             val targetFile: File = if (assetIndex.isVirtual || assetIndex.isMapToResources) {
@@ -114,12 +140,12 @@ class BaseMinecraftDownloader(
             } else {
                 File(targetPath, "objects/${hashedPath}".replace("/", File.separator))
             }
-            scheduleDownload("$MINECRAFT_RES$hashedPath".mapMirrorableUrls(), objectInfo.hash, targetFile, objectInfo.size)
+            scheduleDownload("$MINECRAFT_RES$hashedPath".mapBMCLMirrorUrls(), objectInfo.hash, targetFile, objectInfo.size)
         }
     }
 
     /** 计划库文件下载 */
-    fun loadLibraryDownloads(
+    suspend fun loadLibraryDownloads(
         gameManifest: GameManifest,
         targetDir: File = librariesTarget,
         scheduleDownload: (urls: List<String>, hash: String?, targetFile: File, size: Long, isDownloadable: Boolean) -> Unit
@@ -127,10 +153,12 @@ class BaseMinecraftDownloader(
         gameManifest.libraries?.let { libraries ->
             processLibraries { libraries }
             libraries.forEach { library ->
+                currentCoroutineContext().ensureActive()
+
                 if (library.name.startsWith("org.lwjgl")) return@forEach
 
                 val artifactPath: String = artifactToPath(library) ?: return@forEach
-                val (sha1, url, size, isDownloadable) = library.downloads?.let { downloads ->
+                val (sha1: String?, url, size, isDownloadable) = library.downloads?.let { downloads ->
                     downloads.artifact?.let { artifact ->
                         Quadruple(artifact.sha1, artifact.url, artifact.size, true)
                     } ?: return@forEach
@@ -152,7 +180,7 @@ class BaseMinecraftDownloader(
                     Quadruple(library.sha1, url, library.size, isDownloadable)
                 }
 
-                scheduleDownload(url.mapMirrorableUrls(), sha1, File(targetDir, artifactPath), size, isDownloadable)
+                scheduleDownload(url.mapBMCLMirrorUrls(), sha1, File(targetDir, artifactPath), size, isDownloadable)
             }
         }
     }

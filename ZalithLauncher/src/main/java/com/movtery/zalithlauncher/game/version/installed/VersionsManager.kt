@@ -1,62 +1,78 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.installed
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.res.stringResource
-import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.game.path.getGameHome
 import com.movtery.zalithlauncher.game.path.getVersionsHome
 import com.movtery.zalithlauncher.game.version.installed.utils.parseJsonToVersionInfo
-import com.movtery.zalithlauncher.info.InfoDistributor
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
-import com.movtery.zalithlauncher.utils.string.compareChar
-import com.movtery.zalithlauncher.utils.string.compareVersion
+import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.apache.commons.io.FileUtils
 import java.io.File
 
+private const val TAG = "VersionsManager"
+
 object VersionsManager {
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val mutex = Mutex()
+    private val listeners: MutableList<suspend () -> Unit> = mutableListOf()
+
+    /**
+     * 注册版本列表刷新监听器
+     */
+    fun registerListener(listener: suspend () -> Unit) {
+        listeners.add(listener)
+    }
+
+    /**
+     * 移除版本列表刷新监听器
+     */
+    fun unregisterListener(listener: suspend () -> Unit) {
+        listeners.remove(listener)
+    }
 
     private val _versions = MutableStateFlow<List<Version>>(emptyList())
-    private val _vanillaVersions = MutableStateFlow<List<Version>>(emptyList())
-    private val _modloaderVersions = MutableStateFlow<List<Version>>(emptyList())
-    val versions: StateFlow<List<Version>> = _versions
-    val vanillaVersions: StateFlow<List<Version>> = _vanillaVersions
-    val modloaderVersions: StateFlow<List<Version>> = _modloaderVersions
-
-    fun allVersionsCount() = _versions.value.size
-    fun vanillaVersionsCount() = _vanillaVersions.value.size
-    fun modloaderVersionsCount() = _modloaderVersions.value.size
+    /** 当前所有的游戏版本 */
+    val versions = _versions.asStateFlow()
 
     /**
      * 当前的游戏信息
      */
-    var currentGameInfo by mutableStateOf<CurrentGameInfo?>(null)
+    var gameInfo: CurrentGameInfo? = null
         private set
 
-    /**
-     * 当前的版本
-     */
-    var currentVersion by mutableStateOf<Version?>(null)
-        private set
+    private val _currentVersion = MutableStateFlow<Version?>(null)
+    val currentVersion = _currentVersion.asStateFlow()
 
     private var currentJob: Job? = null
 
-    /**
-     * 是否正在刷新版本
-     */
-    var isRefreshing by mutableStateOf(false)
-        private set
+    private val _isRefreshing = MutableStateFlow(false)
+    /** 是否正在刷新版本 */
+    val isRefreshing = _isRefreshing.asStateFlow()
 
     /**
      * 检查版本是否已经存在
@@ -68,186 +84,163 @@ object VersionsManager {
         else folder.exists()
     }
 
-    fun refresh() {
+    /**
+     * 刷新所有版本
+     * @param tag 是由谁发起的刷新，输出到日志方便定位
+     * @param trySetVersion 在刷新完成后尝试设置当前版本
+     */
+    fun refresh(tag: String, trySetVersion: String? = null) {
         currentJob?.cancel()
         currentJob = scope.launch {
-            isRefreshing = true
+            mutex.withLock {
+                _isRefreshing.update { true }
+                Logger.debug(TAG, "Initiated by $tag: starting to refresh the version list.")
 
-            _versions.update { emptyList() }
-            _vanillaVersions.update { emptyList() }
-            _modloaderVersions.update { emptyList() }
+                //本次刷新绑定的游戏目录，避免刷新过程中目录切换导致数据串目录
+                val gameHome = getGameHome()
 
-            val newVersions = mutableListOf<Version>()
-            File(getVersionsHome()).listFiles()?.forEach { versionFile ->
-                runCatching {
-                    processVersionFile(versionFile)
-                }.getOrNull()?.let {
-                    newVersions.add(it)
+                if (trySetVersion != null) {
+                    saveCurrentVersion(trySetVersion, refresh = false)
+                    Logger.debug(TAG, "Has attempted to save the current version: $trySetVersion")
                 }
+
+                _versions.update { emptyList() }
+
+                val newVersions = mutableListOf<Version>()
+                File(getVersionsHome(gameHome)).listFiles()?.forEach { versionFile ->
+                    runCatching {
+                        processVersionFile(gameHome, versionFile)
+                    }.getOrNull()?.let {
+                        newVersions.add(it)
+                    }
+                }
+
+                _versions.update { newVersions.sortedWith(VersionComparator) }
+
+                gameInfo = refreshCurrentInfo(gameHome)
+                Logger.debug(TAG, "Version list refreshed, refreshing the current version now.")
+                refreshCurrentVersion()
+
+                listeners.forEach { it() }
+
+                _isRefreshing.update { false }
             }
-
-            newVersions.sortWith { o1, o2 ->
-                val thisVer = o1.getVersionInfo()?.minecraftVersion ?: o1.getVersionName()
-                var sort = -thisVer.compareVersion(
-                    o2.getVersionInfo()?.minecraftVersion ?: o2.getVersionName()
-                )
-                if (sort == 0) sort =
-                    compareChar(o1.getVersionName(), o2.getVersionName())
-                sort
-            }
-
-            _versions.update { newVersions.toList() }
-            _vanillaVersions.update { newVersions.filter { ver -> ver.versionType == VersionType.VANILLA } }
-            _modloaderVersions.update { newVersions.filter { ver -> ver.versionType == VersionType.MODLOADERS } }
-
-            currentGameInfo = refreshCurrentInfo()
-            refreshCurrentVersion()
-
-            isRefreshing = false
         }
     }
 
-    private fun processVersionFile(versionFile: File): Version? {
-        if (versionFile.exists() && versionFile.isDirectory) {
-            var isVersion = false
+    /**
+     * 执行在版本列表刷新完成后可执行的任务
+     */
+    suspend fun waitForRefresh() {
+        mutex.withLock {}
+    }
 
-            //通过判断是否存在版本的.json文件，来确定其是否为一个版本
-            val jsonFile = File(versionFile, "${versionFile.name}.json")
-            val versionInfo = if (jsonFile.exists() && jsonFile.isFile) {
-                parseJsonToVersionInfo(jsonFile)?.also {
-                    //如果解析失败了，可能不是标准版本
-                    //保险起见，只有解析成功了的版本，才会被判定为有效版本
-                    isVersion = true
-                }
-            } else {
-                null
+    private fun processVersionFile(gameHome: String, versionFile: File): Version? {
+        val version = loadVersion(gameHome, versionFile.name) ?: return null
+        Logger.info(TAG,
+            "Identified and added version: ${version.getVersionName()}, " +
+                    "Path: (${version.getVersionPath()}), " +
+                    "Info: ${version.getVersionInfo()?.getInfoString()}"
+        )
+        return version
+    }
+
+    /**
+     * 加载指定游戏目录下的单个版本
+     * @return 版本不存在或不是有效版本文件夹时返回 null
+     */
+    fun loadVersion(gameHome: String, versionName: String): Version? {
+        val versionFile = File(getVersionsHome(gameHome), versionName)
+        if (!versionFile.exists() || !versionFile.isDirectory) return null
+
+        var isVersion = false
+
+        //通过判断是否存在版本的.json文件，来确定其是否为一个版本
+        val jsonFile = File(versionFile, "${versionFile.name}.json")
+        val versionInfo = if (jsonFile.exists() && jsonFile.isFile) {
+            parseJsonToVersionInfo(jsonFile)?.also {
+                //如果解析失败了，可能不是标准版本
+                //保险起见，只有解析成功了的版本，才会被判定为有效版本
+                isVersion = true
             }
-
-            val versionConfig = VersionConfig.parseConfig(versionFile)
-
-            val version = Version(
-                versionFile.name,
-                versionConfig,
-                versionInfo,
-                isVersion,
-                versionInfo.getVersionType()
-            )
-
-            lInfo(
-                "Identified and added version: ${version.getVersionName()}, " +
-                        "Path: (${version.getVersionPath()}), " +
-                        "Info: ${version.getVersionInfo()?.getInfoString()}"
-            )
-
-            return version
+        } else {
+            null
         }
-        return null
+
+        val versionConfig = VersionConfig.parseConfig(versionFile)
+
+        return Version(
+            versionFile.name,
+            gameHome,
+            versionConfig,
+            versionInfo,
+            isVersion,
+            versionInfo.getVersionType()
+        )
     }
 
     private fun refreshCurrentVersion() {
-        currentVersion = run {
-            if (_versions.value.isEmpty()) return@run null
+        val version = run {
+            val currentList = _versions.value
+            if (currentList.isEmpty()) return@run null
 
-            fun returnVersionByFirst(): Version? {
-                return _versions.value.find { it.isValid() }?.apply {
+            fun getVersionByFirst(): Version? {
+                return currentList.find { it.isValid() }?.apply {
                     //确保版本有效
-                    saveCurrentVersion(getVersionName())
+                    saveCurrentVersion(getVersionName(), refresh = false)
                 }
             }
 
             runCatching {
-                val versionString = currentGameInfo!!.version
-                getVersion(versionString) ?: returnVersionByFirst()
+                val versionString = gameInfo!!.version
+                currentList.getVersion(versionString) ?: run {
+                    Logger.debug(TAG, "Stored version $versionString not found, using the first available version instead.")
+                    getVersionByFirst()
+                }
             }.onFailure { e ->
-                lWarning("The current version information has not been initialized yet.", e)
+                Logger.warning(TAG, "The current version information has not been initialized yet.", e)
             }.getOrElse {
-                returnVersionByFirst()
+                getVersionByFirst()
             }
+        }.also { version ->
+            Logger.debug(TAG, "The current version is: ${version?.getVersionName()}")
         }
+
+        _currentVersion.update { version }
     }
 
-    private fun getVersion(name: String?): Version? {
+    private fun List<Version>.getVersion(name: String?): Version? {
         name?.let { versionName ->
-            return _versions.value.find { it.getVersionName() == versionName }?.takeIf { it.isValid() }
+            return find { it.getVersionName() == versionName }?.takeIf { it.isValid() }
         }
         return null
     }
 
     /**
-     * @return 通过版本名，判断其版本是否存在
+     * 保存当前选择的版本
+     * @return 是否执行保存
      */
-    fun checkVersionExistsByName(versionName: String?) =
-        versionName?.let { name -> _versions.value.any { it.getVersionName() == name } } ?: false
-
-    /**
-     * @return 获取 Zalith 启动器版本标识文件夹
-     */
-    fun getZalithVersionPath(version: Version) = File(version.getVersionPath(), InfoDistributor.LAUNCHER_IDENTIFIER)
-
-    /**
-     * @return 通过目录获取 Zalith 启动器版本标识文件夹
-     */
-    fun getZalithVersionPath(folder: File) = File(folder, InfoDistributor.LAUNCHER_IDENTIFIER)
-
-    /**
-     * @return 通过名称获取 Zalith 启动器版本标识文件夹
-     */
-    fun getZalithVersionPath(name: String) = File(getVersionPath(name), InfoDistributor.LAUNCHER_IDENTIFIER)
-
-    /**
-     * @return 获取当前版本设置的图标
-     */
-    fun getVersionIconFile(version: Version) = File(getZalithVersionPath(version), "VersionIcon.png")
-
-    /**
-     * @return 通过目录获取 Zalith 启动器版本标识文件夹
-     */
-    fun getVersionIconFile(folder: File) = File(getZalithVersionPath(folder), "VersionIcon.png")
-
-    /**
-     * @return 通过名称获取当前版本设置的图标
-     */
-    fun getVersionIconFile(name: String) = File(getZalithVersionPath(name), "VersionIcon.png")
-
-    /**
-     * @return 通过名称获取版本的文件夹路径
-     */
-    fun getVersionPath(name: String) = File(getVersionsHome(), name)
+    fun saveVersion(version: Version, refresh: Boolean = true): Boolean {
+        if (!version.isValid()) return false
+        saveCurrentVersion(version.getVersionName(), refresh)
+        return true
+    }
 
     /**
      * 保存当前选择的版本
      */
-    fun saveCurrentVersion(versionName: String) {
+    fun saveCurrentVersion(versionName: String, refresh: Boolean = true) {
         runCatching {
-            currentGameInfo!!.apply {
+            gameInfo!!.apply {
                 version = versionName
-                saveCurrentInfo()
+                saveCurrentInfo(getGameHome())
             }
-            refreshCurrentVersion()
+            if (refresh) {
+                Logger.debug(TAG, "Current game info file saved, refreshing the current version now.")
+                refreshCurrentVersion()
+            }
         }.onFailure { e ->
-            lError("An exception occurred while saving the currently selected version information.", e)
-        }
-    }
-
-    @Composable
-    fun validateVersionName(
-        newName: String,
-        versionInfo: VersionInfo?,
-        onError: (message: String) -> Unit
-    ): Boolean {
-        return when {
-            isVersionExists(newName, true) -> {
-                onError(stringResource(R.string.versions_manage_install_exists))
-                true
-            }
-            versionInfo?.loaderInfo?.let {
-                //如果这个版本是有ModLoader加载器信息的，则不允许修改为与原版名称一致的名称，防止冲突
-                newName == versionInfo.minecraftVersion
-            } ?: false -> {
-                onError(stringResource(R.string.versions_manage_install_cannot_use_mc_name))
-                true
-            }
-            else -> false
+            Logger.error(TAG, "An exception occurred while saving the currently selected version information.", e)
         }
     }
 
@@ -255,12 +248,12 @@ object VersionsManager {
      * 重命名当前版本，但并不会在这里对即将重命名的名称，进行非法性判断
      */
     fun renameVersion(version: Version, name: String) {
-        val currentVersionName = currentVersion?.getVersionName()
+        val currentVersionName = _currentVersion.value?.getVersionName()
         //如果当前的版本是即将被重命名的版本，那么就把将要重命名的名字设置为当前版本
         val saveToCurrent = version.getVersionName() == currentVersionName
 
         val versionFolder = version.getVersionPath()
-        val renameFolder = File(getVersionsHome(), name)
+        val renameFolder = File(version.getVersionsFolder(), name)
 
         //不管重命名之后的文件夹是什么，只要这个文件夹存在，那么就必须删除
         //否则将出现问题
@@ -282,10 +275,10 @@ object VersionsManager {
 
         if (saveToCurrent) {
             //设置并刷新当前版本
-            saveCurrentVersion(name)
+            saveCurrentVersion(name, refresh = false)
         }
 
-        refresh()
+        refresh("VersionsManager.renameVersion")
     }
 
     /**
@@ -331,7 +324,7 @@ object VersionsManager {
             config.saveWithThrowable()
         }
 
-        refresh()
+        refresh("VersionsManager.copyVersion")
     }
 
     /**
@@ -339,6 +332,6 @@ object VersionsManager {
      */
     fun deleteVersion(version: Version) {
         FileUtils.deleteQuietly(version.getVersionPath())
-        refresh()
+        refresh("VersionsManager.deleteVersion")
     }
 }

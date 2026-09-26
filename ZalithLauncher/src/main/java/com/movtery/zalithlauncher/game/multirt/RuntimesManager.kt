@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.multirt
 
 import android.system.Os
@@ -7,8 +25,7 @@ import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.utils.file.child
 import com.movtery.zalithlauncher.utils.file.ensureDirectory
 import com.movtery.zalithlauncher.utils.file.ensureParentDirectory
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.math.findNearestPositive
 import com.movtery.zalithlauncher.utils.string.compareVersion
 import com.movtery.zalithlauncher.utils.string.extractUntilCharacter
@@ -20,11 +37,12 @@ import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
 import org.apache.commons.io.FileUtils
 import org.apache.commons.io.IOUtils
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
+
+private const val TAG = "RuntimesManager"
 
 /**
  * [Modified from PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher/blob/v3_openjdk/app_pojavlauncher/src/main/java/net/kdt/pojavlaunch/multirt/MultiRTUtils.java)
@@ -38,7 +56,7 @@ object RuntimesManager {
 
     fun getRuntimes(forceLoad: Boolean = false): List<Runtime> {
         if (!RUNTIME_FOLDER.exists()) {
-            lWarning("Runtime directory not found: ${RUNTIME_FOLDER.absolutePath}")
+            Logger.warning(TAG, "Runtime directory not found: ${RUNTIME_FOLDER.absolutePath}")
             return emptyList()
         }
 
@@ -84,13 +102,20 @@ object RuntimesManager {
                     } else {
                         versionParts.first().toIntOrNull() ?: 0
                     }
-                    val isJDK = runtimeDir.child("bin/javac").exists()
-                    Runtime(name, javaVersion, osArch, majorVersion, Jre.entries.any { it.jreName == name }, isJDK)
+
+                    Runtime(
+                        name = name,
+                        versionString = javaVersion,
+                        arch = osArch,
+                        javaVersion = majorVersion,
+                        isProvidedByLauncher = Jre.entries.any { it.jreName == name },
+                        isJDK8 = isJDK8(runtimeDir.absolutePath)
+                    )
                 } else {
                     Runtime(name)
                 }
             }.onFailure { e ->
-                lError("Failed to load runtime $name", e)
+                Logger.error(TAG, "Failed to load runtime $name", e)
             }.getOrElse {
                 Runtime(name)
             }.also { cache[name] = it }
@@ -105,10 +130,17 @@ object RuntimesManager {
         updateProgress: (Int, Array<Any>) -> Unit = { _, _ -> }
     ) = withContext(Dispatchers.IO) {
         val dest = RUNTIME_FOLDER.child(name)
-        if (dest.exists()) FileUtils.deleteDirectory(dest)
-        uncompressTarXZ(inputStream, dest, updateProgress)
-        unpack200(nativeLibDir, dest.absolutePath)
-        loadRuntime(name)
+        try {
+            if (dest.exists()) FileUtils.deleteDirectory(dest)
+            uncompressTarXZ(inputStream, dest, updateProgress)
+            unpack200(nativeLibDir, dest.absolutePath)
+            loadRuntime(name).also { runtime ->
+                postPrepare(runtime)
+            }
+        } catch (e: Exception) {
+            FileUtils.deleteDirectory(dest)
+            throw e
+        }
     }
 
     @Throws(IOException::class)
@@ -116,18 +148,40 @@ object RuntimesManager {
         val dest = RUNTIME_FOLDER.child(name)
         if (!dest.exists()) return@withContext
         val runtime = loadRuntime(name)
+        postPrepare(runtime)
+    }
+
+    @Throws(IOException::class)
+    suspend fun postPrepare(runtime: Runtime) = withContext(Dispatchers.IO) {
+        val dest = RUNTIME_FOLDER.child(runtime.name)
+        if (!dest.exists()) return@withContext
         var libFolder = "lib"
-        if (File(dest, "$libFolder${File.separator}${runtime.arch}").exists()) {
-            libFolder += "${File.separator}${runtime.arch}"
+
+        val arch = runtime.arch
+        if (arch != null && dest.child(libFolder, arch).exists()) {
+            libFolder += "/$arch"
         }
+
+        val isJDK8 = isJDK8(dest.absolutePath)
+        if (isJDK8) {
+            libFolder = "/jre$libFolder"
+        }
+
         val ftIn = dest.child(libFolder, "libfreetype.so.6")
         val ftOut = dest.child(libFolder, "libfreetype.so")
         if (ftIn.exists() && (!ftOut.exists() || ftIn.length() != ftOut.length())) {
             if (!ftIn.renameTo(ftOut)) throw IOException("Failed to rename freetype")
         }
 
-        //Refresh libraries
-        copyDummyNativeLib("libawt_xawt.so", dest, libFolder)
+        val ft2In = dest.child(libFolder, "libfreetype.so")
+        if (isJDK8 && ft2In.exists()) {
+            ft2In.renameTo(ftOut)
+        }
+
+        val localXawtLib = File(PathManager.DIR_NATIVE_LIB, "libawt_xawt.so")
+        val targetXawtLib = dest.child(libFolder, "libawt_xawt.so")
+        if (targetXawtLib.exists()) targetXawtLib.delete()
+        FileUtils.copyFile(localXawtLib, targetXawtLib)
     }
 
     @Throws(IOException::class)
@@ -139,16 +193,21 @@ object RuntimesManager {
         updateProgress: (Int, Array<Any>) -> Unit = { _, _ -> }
     ) = withContext(Dispatchers.IO) {
         val dest = RUNTIME_FOLDER.child(name)
-        if (dest.exists()) FileUtils.deleteDirectory(dest)
-        installRuntimeNoRemove(universalFileInputStream, dest, updateProgress)
-        installRuntimeNoRemove(platformBinsInputStream, dest, updateProgress)
+        try {
+            if (dest.exists()) FileUtils.deleteDirectory(dest)
+            installRuntimeNoRemove(universalFileInputStream, dest, updateProgress)
+            installRuntimeNoRemove(platformBinsInputStream, dest, updateProgress)
 
-        unpack200(PathManager.DIR_NATIVE_LIB, dest.absolutePath)
+            unpack200(PathManager.DIR_NATIVE_LIB, dest.absolutePath)
 
-        val versionFile = File(dest, "version")
-        versionFile.writeText(binPackVersion)
+            val versionFile = File(dest, "version")
+            versionFile.writeText(binPackVersion)
 
-        forceReload(name)
+            forceReload(name)
+        } catch (e: Exception) {
+            FileUtils.deleteDirectory(dest)
+            throw e
+        }
     }
 
     fun loadInternalRuntimeVersion(name: String): String? {
@@ -209,25 +268,11 @@ object RuntimesManager {
                     }
                 }.onFailure { e ->
                     if (e is IOException) {
-                        lError("Failed to unpack the runtime!", e)
+                        Logger.error(TAG, "Failed to unpack the runtime!", e)
                     } else throw e
                 }
             }
         }
-
-    @Throws(IOException::class)
-    private suspend fun copyDummyNativeLib(
-        name: String,
-        dest: File,
-        libFolder: String
-    ) = withContext(Dispatchers.IO) {
-        val fileLib = dest.child(libFolder, name)
-        val inputStream = FileInputStream(File(PathManager.DIR_NATIVE_LIB, name))
-        val outputStream = FileOutputStream(fileLib)
-        IOUtils.copy(inputStream, outputStream)
-        inputStream.close()
-        outputStream.close()
-    }
 
     @Throws(IOException::class)
     private suspend fun installRuntimeNoRemove(
@@ -258,9 +303,10 @@ object RuntimesManager {
 
                 when {
                     tarEntry.isSymbolicLink -> try {
-                        Os.symlink(tarEntry.linkName, tarEntryName)
+                        if (destPath.exists()) destPath.delete()
+                        Os.symlink(tarEntry.linkName, destPath.absolutePath)
                     } catch (e: Throwable) {
-                        lError("Exception occurred while creating symbolic link", e)
+                        Logger.warning(TAG, "Failed to create symbolic link: ${destPath.absolutePath} -> ${tarEntry.linkName} (${e.message})")
                     }
 
                     tarEntry.isDirectory -> destPath.ensureDirectory()
@@ -271,5 +317,9 @@ object RuntimesManager {
                 }
             }
         }
+    }
+
+    fun isJDK8(runtimeDir: String): Boolean {
+        return File(runtimeDir, "jre").exists() && File(runtimeDir, "bin/javac").exists()
     }
 }

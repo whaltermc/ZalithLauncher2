@@ -1,15 +1,35 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.utils.logging
 
 import android.content.Context
 import android.util.Log
+import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.setting.AllSettings
+import com.movtery.zalithlauncher.utils.file.zipDirectory
+import com.movtery.zalithlauncher.utils.printLauncherInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.apache.commons.io.FileUtils
 import java.io.ByteArrayOutputStream
@@ -29,10 +49,16 @@ object Logger : CoroutineScope {
     override val coroutineContext: CoroutineContext = Dispatchers.Default + Job()
 
     private lateinit var PACKAGE_PREFIX: String
+
+    /**
+     * 当前进程的标识
+     */
+    private lateinit var PROCESS_TAG: String
     private val isInitialized = AtomicBoolean(false)
     private val channel = Channel<LogMessage>(Channel.UNLIMITED)
 
-    private val logRetentionDays = AllSettings.launcherLogRetentionDays.getValue().coerceAtLeast(0)
+    private val logRetentionDays: Int
+        get() = AllSettings.launcherLogRetentionDays.getValue()
 
     private var currentLogFile: File? = null
     private var logWriter: PrintWriter? = null
@@ -43,15 +69,40 @@ object Logger : CoroutineScope {
      */
     fun initialize(context: Context) {
         PACKAGE_PREFIX = "${context.packageName}."
+        PROCESS_TAG = getProcessTag(context)
 
         if (!isInitialized.compareAndSet(false, true)) return
 
         launch(Dispatchers.IO) {
+            setupLogWriter()
+
             //由于安卓不存在“退出”这种设置
             //所以清理旧的日志的工作需要放到初始化阶段
             deleteOldLogs()
-            setupLogWriter()
+
+            printLauncherInfo()
+
             processEvents()
+        }
+    }
+
+    /**
+     * 获取当前进程标识
+     */
+    private fun getProcessTag(context: Context): String {
+        val processName = context.applicationInfo.processName
+        val separatorIndex = processName.lastIndexOf(':')
+        return if (separatorIndex < 0) "main" else processName.substring(separatorIndex + 1)
+    }
+
+    private suspend fun printLauncherInfo() {
+        logWriter?.apply {
+            withContext(Dispatchers.IO) {
+                println("================ ${BuildKeys.LAUNCHER_IDENTIFIER} Log ================")
+                printLauncherInfo { println(it) }
+                println("====================================================")
+                flush()
+            }
         }
     }
 
@@ -66,7 +117,7 @@ object Logger : CoroutineScope {
                 Level.WARNING,
                 "Failed to create log file", e
             )
-            runBlocking { channel.send(logMessage) }
+            channel.send(logMessage)
             inMemoryLogs = ByteArrayOutputStream(1024 * 1024) // 1MB buffer
             logWriter = PrintWriter(inMemoryLogs!!)
         }
@@ -79,11 +130,10 @@ object Logger : CoroutineScope {
 
         do {
             val suffix = if (counter == 0) "" else ".$counter"
-            file = File(PathManager.DIR_LAUNCHER_LOGS, "log_${dateFormat.format(Date())}$suffix.log")
+            file = File(PathManager.DIR_LAUNCHER_LOGS, "log_${dateFormat.format(Date())}_$PROCESS_TAG$suffix.log")
             counter++
-        } while (file.exists())
+        } while (!file.createNewFile())
 
-        file.createNewFile()
         return file
     }
 
@@ -133,13 +183,9 @@ object Logger : CoroutineScope {
 
     private fun formatMessage(message: LogMessage): String {
         val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(message.time)
-        val caller = message.caller?.let {
-            if (it.startsWith(PACKAGE_PREFIX)) "~${it.substring(PACKAGE_PREFIX.length)}" else it
-        } ?: "Unknown"
-
         return buildString {
             append("[$time] [")
-            append(caller)
+            append(message.tag)
             append("/")
             append(message.level.name)
             append("] ")
@@ -150,39 +196,38 @@ object Logger : CoroutineScope {
     private suspend fun deleteOldLogs() = withContext(Dispatchers.IO) {
         PathManager.DIR_LAUNCHER_LOGS.listFiles()?.let { files ->
             val cutoff = System.currentTimeMillis() - logRetentionDays * 86400000L
+            //清理遗留的 0kb 空日志
+            val emptyLogCutoff = System.currentTimeMillis() - 60 * 1000L
             files.filter {
-                //过滤出日期超过指定天数的日志文件
-                it.lastModified() < cutoff
+                it.lastModified() < cutoff ||
+                    (it != currentLogFile && it.length() == 0L && it.lastModified() < emptyLogCutoff)
             }.forEach {
                 FileUtils.deleteQuietly(it)
             }
         }
     }
 
-    fun lError(msg: String, t: Throwable? = null) =
-        log(Level.ERROR, findCaller(), msg, t)
+    fun error(tag: String, msg: String, t: Throwable? = null) =
+        log(Level.ERROR, tag, msg, t)
 
-    fun lWarning(msg: String, t: Throwable? = null) =
-        log(Level.WARNING, findCaller(), msg, t)
+    fun warning(tag: String, msg: String, t: Throwable? = null) =
+        log(Level.WARNING, tag, msg, t)
 
-    fun lInfo(msg: String, t: Throwable? = null) =
-        log(Level.INFO, findCaller(), msg, t)
+    fun info(tag: String, msg: String, t: Throwable? = null) =
+        log(Level.INFO, tag, msg, t)
 
-    fun lDebug(msg: String, t: Throwable? = null) =
-        log(Level.DEBUG, findCaller(), msg, t)
-
-    fun lTrace(msg: String, t: Throwable? = null) =
-        log(Level.TRACE, findCaller(), msg, t)
+    fun debug(tag: String, msg: String, t: Throwable? = null) =
+        log(Level.DEBUG, tag, msg, t)
 
     /**
      * 输出日志
      */
-    fun log(level: Level, caller: String?, message: String, throwable: Throwable? = null) {
+    fun log(level: Level, tag: String, message: String, throwable: Throwable? = null) {
         if (!isInitialized.get()) return
 
         val logMessage = LogMessage(
             time = System.currentTimeMillis(),
-            caller = caller,
+            tag = tag,
             level = level,
             message = message,
             throwable = throwable
@@ -194,16 +239,14 @@ object Logger : CoroutineScope {
     }
 
     /**
-     * 找到调用者
+     * 打包所有日志文件
      */
-    private fun findCaller(): String? {
-        return Throwable().stackTrace.firstOrNull { element ->
-            element.className != this::class.java.name &&
-                    !element.className.startsWith("kotlin.coroutines") &&
-                    !element.className.startsWith("kotlinx.coroutines")
-        }?.let {
-            val className = it.className.substringAfterLast('.')
-            "$className.${it.methodName}"
+    suspend fun pack(target: File) {
+        withContext(Dispatchers.IO) {
+            zipDirectory(
+                sourceDir = PathManager.DIR_LAUNCHER_LOGS,
+                outputZipFile = target
+            )
         }
     }
 }

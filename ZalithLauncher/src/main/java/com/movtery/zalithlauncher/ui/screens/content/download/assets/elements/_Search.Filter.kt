@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.download.assets.elements
 
 import androidx.compose.animation.AnimatedVisibility
@@ -7,6 +25,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -18,53 +38,63 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Clear
-import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastForEach
+import com.movtery.layer_controller.utils.animateShapeAsState
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.download.assets.platform.Platform
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformDisplayLabel
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformFilterCode
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformSortField
-import com.movtery.zalithlauncher.game.versioninfo.MinecraftVersions
-import com.movtery.zalithlauncher.game.versioninfo.allGameVersions
+import com.movtery.zalithlauncher.game.download.assets.utils.ModTranslations
+import com.movtery.zalithlauncher.setting.AllSettings
 import com.movtery.zalithlauncher.ui.components.LittleTextLabel
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
+import com.movtery.zalithlauncher.ui.components.OwnOutlinedTextField
+import com.movtery.zalithlauncher.ui.screens.content.elements.backgroundGlass
+import com.movtery.zalithlauncher.ui.theme.cardColor
+import com.movtery.zalithlauncher.ui.theme.onCardColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
 
 /**
  * 搜索资源过滤器UI
  * @param enablePlatform 是否允许更改目标平台
  * @param searchPlatform 目标平台
  * @param searchName 搜索名称
+ * @param searchedMcMods 搜索得到的 MCMOD 项目
+ * @param searchedVersions 搜索得到的Minecraft版本号
  * @param gameVersion 游戏版本
  * @param sortField 排序方式
  * @param allCategories 可用资源类别列表
@@ -72,7 +102,10 @@ import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
  * @param enableModLoader 是否启用模组加载器过滤
  * @param modloaders 可用模组加载器列表
  * @param modloader 模组加载器
+ * @param onModLoaderChange 模组加载器变更时
+ * @param extraFilter 额外的过滤器UI
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchFilter(
     modifier: Modifier = Modifier,
@@ -82,8 +115,11 @@ fun SearchFilter(
     onPlatformChange: (Platform) -> Unit = {},
     searchName: String,
     onSearchNameChange: (String) -> Unit = {},
-    gameVersion: String?,
-    onGameVersionChange: (String?) -> Unit = {},
+    onSearch: () -> Unit,
+    searchedMcMods: List<ModTranslations.McMod>,
+    searchedVersions: List<String>,
+    gameVersion: String,
+    onGameVersionChange: (String) -> Unit = {},
     sortField: PlatformSortField,
     onSortFieldChange: (PlatformSortField) -> Unit = {},
     allCategories: List<PlatformFilterCode>,
@@ -92,7 +128,8 @@ fun SearchFilter(
     enableModLoader: Boolean = true,
     modloaders: List<PlatformDisplayLabel> = emptyList(),
     modloader: PlatformDisplayLabel? = null,
-    onModLoaderChange: (PlatformDisplayLabel?) -> Unit = {}
+    onModLoaderChange: (PlatformDisplayLabel?) -> Unit = {},
+    extraFilter: (LazyListScope.() -> Unit)? = null
 ) {
     LazyColumn(
         modifier = modifier,
@@ -100,85 +137,66 @@ fun SearchFilter(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
+            SuggestionsText(
                 value = searchName,
                 onValueChange = onSearchNameChange,
-                shape = MaterialTheme.shapes.large,
-                label = {
-                    Text(text = stringResource(R.string.download_assets_filter_search_name))
-                },
-                singleLine = true
-            )
-        }
-
-        if (enablePlatform) {
-            item {
-                FilterListLayout(
-                    modifier = Modifier.fillMaxWidth(),
-                    items = Platform.entries,
-                    selectionMode = FilterSelectionMode.Single,
-                    selectedItems = listOfNotNull(searchPlatform),
-                    onSelectionChange = { new ->
-                        new.first().takeIf { it != searchPlatform }?.let { value ->
-                            onPlatformChange(value)
-                        }
-                    },
-                    getItemLabel = { item ->
-                        item.displayName
-                    },
-                    selectedLabel = { item ->
-                        PlatformIdentifier(
-                            platform = item,
-                            shape = MaterialTheme.shapes.small
+                label = stringResource(R.string.download_assets_filter_search_name),
+                onSearch = onSearch,
+                suggestions = searchedMcMods,
+                suggestionLabel = { item ->
+                    Text(
+                        item.name,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    //英文名/次要名称
+                    if (item.subname.isNotBlank()) {
+                        Text(
+                            modifier = Modifier.alpha(0.7f),
+                            text = item.subname,
+                            style = MaterialTheme.typography.labelSmall
                         )
-                    },
-                    itemLayout = { platform ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                modifier = Modifier.size(14.dp),
-                                painter = painterResource(platform.getDrawable()),
-                                contentDescription = platform.displayName
-                            )
-                            Text(
-                                text = platform.displayName,
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        }
-                    },
-                    title = stringResource(R.string.download_assets_filter_search_platform),
-                    cancelable = false
-                )
-            }
+                    }
+                },
+                onSuggestionClick = { item ->
+                    onSearchNameChange(
+                        item.subname.ifEmpty { item.abbr }
+                    )
+                    onSearch()
+                    onSearch()
+                }
+            )
         }
 
         item {
-            val versions by MinecraftVersions.releasesFlow.collectAsState()
-            //刷新真实的版本列表
-            LaunchedEffect(Unit) {
-                runCatching {
-                    MinecraftVersions.refreshReleaseVersions(force = false)
-                }.onFailure {
-                    lWarning("Failed to refresh Minecraft versions")
-                }
-            }
-
-            FilterListLayout(
-                modifier = Modifier.fillMaxWidth(),
-                items = versions ?: allGameVersions,
-                selectionMode = FilterSelectionMode.Single,
-                selectedItems = listOfNotNull(gameVersion),
-                onSelectionChange = { new ->
-                    new.firstOrNull().takeIf { it != gameVersion }?.let { value ->
-                        onGameVersionChange(value)
-                    }
+            SuggestionsText(
+                value = gameVersion,
+                onValueChange = onGameVersionChange,
+                label = stringResource(R.string.download_assets_filter_game_version),
+                onSearch = onSearch,
+                suggestions = searchedVersions,
+                suggestionLabel = { item ->
+                    Text(
+                        text = item,
+                        style = MaterialTheme.typography.labelMedium
+                    )
                 },
-                getItemLabel = { it },
-                title = stringResource(R.string.download_assets_filter_game_version)
+                onSuggestionClick = { item ->
+                    onGameVersionChange(item)
+                    onSearch()
+                }
             )
+        }
+
+        extraFilter?.invoke(this@LazyColumn)
+
+        if (enablePlatform) {
+            item {
+                PlatformListLayout(
+                    modifier = Modifier.fillMaxWidth(),
+                    searchPlatform = searchPlatform,
+                    onPlatformChange = onPlatformChange,
+                )
+            }
         }
 
         item {
@@ -195,7 +213,7 @@ fun SearchFilter(
                 getItemLabel = { item ->
                     stringResource(item.getDisplayName())
                 },
-                title = stringResource(R.string.download_assets_filter_sort_field),
+                title = stringResource(R.string.sort_by),
                 cancelable = false
             )
         }
@@ -226,9 +244,8 @@ fun SearchFilter(
                     selectionMode = FilterSelectionMode.Single,
                     selectedItems = listOfNotNull(modloader),
                     onSelectionChange = { new ->
-                        new.firstOrNull().takeIf { it != modloader }?.let { value ->
-                            onModLoaderChange(value)
-                        }
+                        val value = new.firstOrNull()
+                        if (value != modloader) onModLoaderChange(value)
                     },
                     getItemLabel = { item ->
                         item.getDisplayName()
@@ -254,8 +271,142 @@ enum class FilterSelectionMode {
     Multiple
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun <E> FilterListLayout(
+private fun <E> SuggestionsText(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    onSearch: () -> Unit,
+    suggestions: List<E>,
+    suggestionLabel: @Composable FlowRowScope.(E) -> Unit,
+    onSuggestionClick: (E) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val focusManager = LocalFocusManager.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused = interactionSource.collectIsFocusedAsState().value
+    val showSuggestions = isFocused && suggestions.isNotEmpty()
+    ExposedDropdownMenuBox(
+        expanded = showSuggestions,
+        onExpandedChange = {
+            focusManager.clearFocus(false)
+        }
+    ) {
+        val fieldShape by animateShapeAsState(
+            if (showSuggestions) RoundedCornerShape(
+                topStart = 16.0.dp, topEnd = 16.0.dp,
+                bottomStart = 0.dp, bottomEnd = 0.dp
+            )
+            else RoundedCornerShape(16.0.dp)
+        )
+        OwnOutlinedTextField(
+            modifier = modifier
+                .fillMaxWidth()
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
+            value = value,
+            onValueChange = onValueChange,
+            shape = fieldShape,
+            label = {
+                Text(text = label)
+            },
+            trailingIcon = {
+                IconButton(
+                    onClick = onSearch
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_search),
+                        contentDescription = stringResource(R.string.generic_search)
+                    )
+                }
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                imeAction = ImeAction.Search
+            ),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    onSearch()
+                }
+            ),
+            interactionSource = interactionSource
+        )
+
+        ExposedDropdownMenu(
+            expanded = showSuggestions,
+            onDismissRequest = {
+                focusManager.clearFocus(false)
+            },
+            shape = RoundedCornerShape(
+                topStart = 0.dp, topEnd = 0.dp,
+                bottomStart = 16.0.dp, bottomEnd = 16.0.dp,
+            )
+        ) {
+            suggestions.forEach { item ->
+                DropdownMenuItem(
+                    text = {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            suggestionLabel(item)
+                        }
+                    },
+                    onClick = {
+                        onSuggestionClick(item)
+                        focusManager.clearFocus(false)
+                    }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 基础过滤器UI，已经配置好合适的颜色和形状
+ */
+@Composable
+fun BaseFilterLayout(
+    modifier: Modifier = Modifier,
+    shape: Shape = MaterialTheme.shapes.large,
+    influencedByBackground: Boolean = true,
+    color: Color = cardColor(influencedByBackground),
+    contentColor: Color = onCardColor(),
+    blur: Int = AllSettings.backgroundBlur.state,
+    onClick: (() -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
+    @Composable
+    fun Content() {
+        Column(
+            modifier = Modifier.backgroundGlass(blur, color, influencedByBackground)
+        ) { content() }
+    }
+
+    if (onClick != null) {
+        Surface(
+            modifier = modifier,
+            shape = shape,
+            color = color,
+            contentColor = contentColor,
+            onClick = onClick,
+        ) { Content() }
+    } else {
+        Surface(
+            modifier = modifier,
+            shape = shape,
+            color = color,
+            contentColor = contentColor,
+        ) { Content() }
+    }
+}
+
+/**
+ * 列表过滤器UI
+ */
+@Composable
+fun <E> FilterListLayout(
     title: String,
     items: List<E>,
     selectionMode: FilterSelectionMode,
@@ -276,24 +427,14 @@ private fun <E> FilterListLayout(
         )
     },
     cancelable: Boolean = true,
-    maxListHeight: Dp = 200.dp,
-    shape: Shape = MaterialTheme.shapes.large,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
-    shadowElevation: Dp = 1.dp
+    maxListHeight: Dp = 200.dp
 ) {
     var expanded by remember { mutableStateOf(false) }
 
     val selected = selectedItems.isNotEmpty()
     val isSingle = selectionMode == FilterSelectionMode.Single
 
-    Surface(
-        modifier = modifier,
-        shape = shape,
-        color = color,
-        contentColor = contentColor,
-        shadowElevation = shadowElevation
-    ) {
+    BaseFilterLayout(modifier = modifier) {
         Column(modifier = Modifier.fillMaxWidth()) {
             FilterHeader(
                 title = title,
@@ -306,7 +447,7 @@ private fun <E> FilterListLayout(
                             shape = MaterialTheme.shapes.small
                         )
                     } else {
-                        selectedItems.fastForEach { item ->
+                        selectedItems.forEach { item ->
                             selectedLabel(item)
                         }
                     }
@@ -357,6 +498,52 @@ private fun <E> FilterListLayout(
 }
 
 @Composable
+fun PlatformListLayout(
+    searchPlatform: Platform,
+    onPlatformChange: (Platform) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    FilterListLayout(
+        modifier = modifier,
+        items = Platform.entries,
+        selectionMode = FilterSelectionMode.Single,
+        selectedItems = listOfNotNull(searchPlatform),
+        onSelectionChange = { new ->
+            new.first().takeIf { it != searchPlatform }?.let { value ->
+                onPlatformChange(value)
+            }
+        },
+        getItemLabel = { item ->
+            item.displayName
+        },
+        selectedLabel = { item ->
+            PlatformIdentifier(
+                platform = item,
+                shape = MaterialTheme.shapes.small
+            )
+        },
+        itemLayout = { platform ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    modifier = Modifier.size(14.dp),
+                    painter = painterResource(platform.getDrawable()),
+                    contentDescription = platform.displayName
+                )
+                Text(
+                    text = platform.displayName,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+        },
+        title = stringResource(R.string.download_assets_filter_search_platform),
+        cancelable = false
+    )
+}
+
+@Composable
 private fun FilterHeader(
     title: String,
     expanded: Boolean,
@@ -399,13 +586,20 @@ private fun FilterHeader(
                 modifier = Modifier
                     .size(28.dp)
                     .rotate(rotation),
-                imageVector = Icons.Rounded.ArrowDropDown,
+                painter = painterResource(R.drawable.ic_arrow_drop_down_rounded),
                 contentDescription = null
             )
-            if (selected && cancelable) {
-                IconButton(onClick = onClear) {
+            AnimatedVisibility(
+                visible = selected && cancelable
+            ) {
+                IconButton(
+                    onClick = {
+                        if (selected && cancelable) onClear()
+                    }
+                ) {
                     Icon(
-                        imageVector = Icons.Outlined.Clear,
+                        modifier = Modifier.size(20.dp),
+                        painter = painterResource(R.drawable.ic_deselect),
                         contentDescription = stringResource(R.string.generic_clear)
                     )
                 }

@@ -1,6 +1,25 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.base
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -9,7 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.navigation3.runtime.NavKey
+import androidx.compose.ui.draw.clipToBounds
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
 
 /**
  * 单层级基础屏幕，根据 `currentKey` 判断当前屏幕是否可见
@@ -19,8 +39,8 @@ import androidx.navigation3.runtime.NavKey
  */
 @Composable
 fun BaseScreen(
-    screenKey: NavKey,
-    currentKey: NavKey?,
+    screenKey: TitledNavKey,
+    currentKey: TitledNavKey?,
     useClassEquality: Boolean = false,
     content: @Composable (isVisible: Boolean) -> Unit,
 ) {
@@ -48,7 +68,7 @@ fun BaseScreen(
  */
 @Composable
 fun BaseScreen(
-    vararg levels: Triple<NavKey, NavKey?, Boolean>,
+    vararg levels: Triple<TitledNavKey, TitledNavKey?, Boolean>,
     content: @Composable (isVisible: Boolean) -> Unit,
 ) {
     val targetVisible = remember(levels) {
@@ -76,8 +96,8 @@ fun BaseScreen(
  */
 @Composable
 fun BaseScreen(
-    levels1: List<Pair<Class<out NavKey>, NavKey?>>,
-    vararg levels2: Triple<NavKey, NavKey?, Boolean>,
+    levels1: List<Pair<Class<out TitledNavKey>, TitledNavKey?>>,
+    vararg levels2: Triple<TitledNavKey, TitledNavKey?, Boolean>,
     content: @Composable (isVisible: Boolean) -> Unit,
 ) {
     val targetVisible = remember(levels1, levels2) {
@@ -109,7 +129,11 @@ private fun BaseScreen(
     content: @Composable (isVisible: Boolean) -> Unit,
     visible: Boolean
 ) {
-    Box {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds()
+    ) {
         content(visible)
 
         if (!visible) {
@@ -117,20 +141,24 @@ private fun BaseScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .alpha(0f)
-                    .clickable { }
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = {}
+                    )
             )
         }
     }
 }
 
-private fun isTagVisible(key: Class<out NavKey>, current: NavKey?): Boolean {
+private fun isTagVisible(key: Class<out TitledNavKey>, current: TitledNavKey?): Boolean {
     return key.isInstance(current)
 }
 
 /**
  * @param useClassEquality 是否使用类相等判断
  */
-private fun isTagVisible(key: NavKey, current: NavKey?, useClassEquality: Boolean): Boolean {
+private fun isTagVisible(key: TitledNavKey, current: TitledNavKey?, useClassEquality: Boolean): Boolean {
     return when {
         current == null -> false
         useClassEquality -> key::class == current::class

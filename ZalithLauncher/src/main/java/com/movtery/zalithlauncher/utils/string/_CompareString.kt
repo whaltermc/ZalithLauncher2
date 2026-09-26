@@ -1,28 +1,87 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.utils.string
 
 import org.apache.maven.artifact.versioning.ComparableVersion
 
-fun compareChar(s1: String, s2: String): Int {
-    val regex = "\\d+".toRegex()
+fun naturalCompare(a: String, b: String): Int {
+    var i = 0
+    var j = 0
 
-    val parts1 = regex.findAll(s1).map { it.value }.toList()
-    val parts2 = regex.findAll(s2).map { it.value }.toList()
+    while (i < a.length && j < b.length) {
+        val aIsDigit = a[i].isDigit()
+        val bIsDigit = b[j].isDigit()
 
-    val minSize = minOf(parts1.size, parts2.size)
+        when {
+            aIsDigit && bIsDigit -> {
+                val startI = i
+                val startJ = j
 
-    for (i in 0 until minSize) {
-        val num1 = parts1[i].toIntOrNull()
-        val num2 = parts2[i].toIntOrNull()
+                while (i < a.length && a[i] == '0') i++
+                while (j < b.length && b[j] == '0') j++
 
-        if (num1 != null && num2 != null) {
-            if (num1 != num2) return num1.compareTo(num2)
-        } else {
-            val strCompare = parts1[i].compareTo(parts2[i], ignoreCase = true)
-            if (strCompare != 0) return strCompare
+                val numStartI = i
+                val numStartJ = j
+
+                while (i < a.length && a[i].isDigit()) i++
+                while (j < b.length && b[j].isDigit()) j++
+
+                val numLenI = i - numStartI
+                val numLenJ = j - numStartJ
+
+                if (numLenI != numLenJ) {
+                    return numLenI.compareTo(numLenJ)
+                }
+
+                for (k in 0 until numLenI) {
+                    val digitI = a[numStartI + k]
+                    val digitJ = b[numStartJ + k]
+                    if (digitI != digitJ) {
+                        return digitI.compareTo(digitJ)
+                    }
+                }
+
+                val leadingZerosI = numStartI - startI
+                val leadingZerosJ = numStartJ - startJ
+                if (leadingZerosI != leadingZerosJ) {
+                    return leadingZerosI.compareTo(leadingZerosJ)
+                }
+            }
+
+            !aIsDigit && !bIsDigit -> {
+                val cmp = a[i].lowercaseChar().compareTo(b[j].lowercaseChar())
+                if (cmp != 0) return cmp
+
+                if (a[i] != b[j]) {
+                    return a[i].compareTo(b[j])
+                }
+                i++
+                j++
+            }
+
+            else -> {
+                return if (aIsDigit) -1 else 1
+            }
         }
     }
 
-    return s1.compareTo(s2, ignoreCase = true)
+    return a.length.compareTo(b.length)
 }
 
 /**

@@ -1,10 +1,28 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -41,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -55,6 +74,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.movtery.zalithlauncher.ui.screens.content.elements.DisabledAlpha
 import kotlinx.coroutines.launch
 
 @Composable
@@ -73,7 +93,7 @@ fun ScalingActionButton(
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale = animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = spring(dampingRatio = 0.4f),
+        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
         label = "ButtonScale"
     )
 
@@ -121,7 +141,9 @@ fun IconTextButton(
     painter: Painter,
     text: String,
     contentDescription: String? = text,
-    style: TextStyle = MaterialTheme.typography.labelMedium
+    style: TextStyle = MaterialTheme.typography.labelMedium,
+    enabled: Boolean = true,
+    onLongClick: () -> Unit = {},
 ) {
     BaseIconTextButton(
         onClick = onClick,
@@ -135,7 +157,9 @@ fun IconTextButton(
             )
         },
         text = text,
-        style = style
+        style = style,
+        enabled = enabled,
+        onLongClick = onLongClick
     )
 }
 
@@ -148,7 +172,9 @@ fun IconTextButton(
     imageVector: ImageVector,
     text: String,
     contentDescription: String? = text,
-    style: TextStyle = MaterialTheme.typography.labelMedium
+    style: TextStyle = MaterialTheme.typography.labelMedium,
+    enabled: Boolean = true,
+    onLongClick: () -> Unit = {},
 ) {
     BaseIconTextButton(
         onClick = onClick,
@@ -162,24 +188,29 @@ fun IconTextButton(
             )
         },
         text = text,
-        style = style
+        style = style,
+        enabled = enabled,
+        onLongClick = onLongClick
     )
 }
 
 @Composable
-private fun BaseIconTextButton(
+fun BaseIconTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = MaterialTheme.shapes.large,
     icon: @Composable (Modifier) -> Unit,
     text: String,
-    style: TextStyle = MaterialTheme.typography.labelMedium
+    style: TextStyle = MaterialTheme.typography.labelMedium,
+    enabled: Boolean = true,
+    onLongClick: () -> Unit = {},
 ) {
     Row(
         modifier = modifier
             .clip(shape = shape)
-            .clickable(onClick = onClick)
-            .padding(PaddingValues(horizontal = 8.dp, vertical = 4.dp)),
+            .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick)
+            .padding(PaddingValues(horizontal = 8.dp, vertical = 4.dp))
+            .alpha(if (enabled) 1f else DisabledAlpha),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         icon(Modifier.align(Alignment.CenterVertically))

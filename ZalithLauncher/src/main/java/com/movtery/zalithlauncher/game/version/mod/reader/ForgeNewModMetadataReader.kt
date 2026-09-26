@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.mod.reader
 
 import com.moandjiezana.toml.Toml
@@ -7,7 +25,7 @@ import com.movtery.zalithlauncher.game.version.mod.ModMetadataReader
 import com.movtery.zalithlauncher.game.version.mod.meta.ForgeNewModMetadata
 import com.movtery.zalithlauncher.utils.GSON
 import com.movtery.zalithlauncher.utils.file.UnpackZipException
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.zip.ZipFile
@@ -17,6 +35,8 @@ import java.io.IOException
 import java.util.jar.Attributes
 import java.util.jar.Manifest
 import java.util.zip.ZipFile as JDKZipFile
+
+private const val TAG = "ForgeNewMetadata"
 
 /**
  * [Reference HMCL](https://github.com/HMCL-dev/HMCL/blob/4650287/HMCLCore/src/main/java/org/jackhuang/hmcl/mod/modinfo/ForgeNewModMetadata.java)
@@ -109,7 +129,7 @@ object ForgeNewModMetadataReader : ModMetadataReader {
                 Manifest(stream).mainAttributes.getValue(Attributes.Name.IMPLEMENTATION_VERSION)
             }
         } catch (e: Exception) {
-            lWarning("Failed to parse MANIFEST.MF in file $modFile", e)
+            Logger.warning(TAG, "Failed to parse MANIFEST.MF in file $modFile", e)
             null
         }
     }
@@ -195,7 +215,7 @@ object ForgeNewModMetadataReader : ModMetadataReader {
                 Manifest(stream).mainAttributes.getValue(Attributes.Name.IMPLEMENTATION_VERSION)
             }
         } catch (e: Exception) {
-            lWarning("Failed to parse MANIFEST.MF in file $modFile", e)
+            Logger.warning(TAG, "Failed to parse MANIFEST.MF in file $modFile", e)
             null
         }
     }

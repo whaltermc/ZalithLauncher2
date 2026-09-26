@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.settings
 
 import androidx.compose.foundation.Image
@@ -6,22 +24,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Copyright
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,15 +52,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.navigation3.runtime.NavKey
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.movtery.zalithlauncher.BuildConfig
+import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.plugin.ApkPlugin
 import com.movtery.zalithlauncher.game.plugin.PluginLoader
 import com.movtery.zalithlauncher.game.plugin.appCacheIcon
-import com.movtery.zalithlauncher.info.InfoDistributor
 import com.movtery.zalithlauncher.library.LibraryInfo
 import com.movtery.zalithlauncher.library.libraryData
 import com.movtery.zalithlauncher.path.URL_COMMUNITY
@@ -57,16 +69,21 @@ import com.movtery.zalithlauncher.path.URL_SUPPORT
 import com.movtery.zalithlauncher.path.URL_WEBLATE
 import com.movtery.zalithlauncher.ui.base.BaseScreen
 import com.movtery.zalithlauncher.ui.components.AnimatedLazyColumn
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
+import com.movtery.zalithlauncher.ui.components.CardTitleLayout
 import com.movtery.zalithlauncher.ui.screens.NestedNavKey
 import com.movtery.zalithlauncher.ui.screens.NormalNavKey
-import com.movtery.zalithlauncher.ui.screens.content.settings.layouts.SettingsBackground
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
+import com.movtery.zalithlauncher.ui.screens.content.settings.layouts.CardPosition
+import com.movtery.zalithlauncher.ui.screens.content.settings.layouts.SettingsCard
+import com.movtery.zalithlauncher.ui.theme.itemColor
+import com.movtery.zalithlauncher.ui.theme.onItemColor
 
 @Composable
 fun AboutInfoScreen(
     key: NestedNavKey.Settings,
-    settingsScreenKey: NavKey?,
-    mainScreenKey: NavKey?,
+    settingsScreenKey: TitledNavKey?,
+    mainScreenKey: TitledNavKey?,
+    checkUpdate: () -> Unit,
     openLicense: (raw: Int) -> Unit,
     openLink: (url: String) -> Unit
 ) {
@@ -87,18 +104,33 @@ fun AboutInfoScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         ButtonIconItem(
                             icon = painterResource(R.drawable.img_launcher),
-                            title = InfoDistributor.LAUNCHER_NAME,
+                            title = BuildKeys.LAUNCHER_NAME,
                             text = stringResource(R.string.about_launcher_version, BuildConfig.VERSION_NAME),
-                            buttonText = stringResource(R.string.about_launcher_project_link),
-                            onButtonClick = { openLink(URL_PROJECT) }
+                            button = {
+                                Button(
+                                    onClick = checkUpdate
+                                ) {
+                                    Text(text = stringResource(R.string.upgrade_title))
+                                }
+                                Button(
+                                    onClick = { openLink(URL_PROJECT) }
+                                ) {
+                                    Text(text = stringResource(R.string.about_launcher_project_link))
+                                }
+                            }
                         )
 
                         ButtonIconItem(
-                            icon = painterResource(R.drawable.img_movtery),
+                            icon = painterResource(R.drawable.img_avatar_movtery),
                             title = stringResource(R.string.about_launcher_author_movtery_title),
-                            text = stringResource(R.string.about_launcher_author_movtery_text, InfoDistributor.LAUNCHER_NAME),
-                            buttonText = stringResource(R.string.about_sponsor),
-                            onButtonClick = { openLink(URL_SUPPORT) }
+                            text = stringResource(R.string.about_launcher_author_movtery_text, BuildKeys.LAUNCHER_NAME),
+                            button = {
+                                Button(
+                                    onClick = { openLink(URL_SUPPORT) }
+                                ) {
+                                    Text(text = stringResource(R.string.about_sponsor))
+                                }
+                            }
                         )
                     }
                 }
@@ -111,42 +143,59 @@ fun AboutInfoScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         ButtonIconItem(
-                            icon = painterResource(R.drawable.img_bangbang93),
+                            icon = painterResource(R.drawable.img_avatar_bangbang93),
                             title = "bangbang93",
-                            text = stringResource(R.string.about_acknowledgements_bangbang93_text, InfoDistributor.LAUNCHER_SHORT_NAME),
-                            buttonText = stringResource(R.string.about_sponsor),
-                            onButtonClick = { openLink("https://afdian.com/a/bangbang93") }
+                            text = stringResource(R.string.about_acknowledgements_bangbang93_text, BuildKeys.LAUNCHER_SHORT_NAME),
+                            button = {
+                                Button(
+                                    onClick = { openLink("https://ifdian.net/a/bangbang93") }
+                                ) {
+                                    Text(text = stringResource(R.string.about_sponsor))
+                                }
+                            }
                         )
                         LinkIconItem(
                             icon = painterResource(R.drawable.img_launcher_fcl),
                             title = "Fold Craft Launcher",
-                            text = stringResource(R.string.about_acknowledgements_fcl_text, InfoDistributor.LAUNCHER_SHORT_NAME),
+                            text = stringResource(R.string.about_acknowledgements_fcl_text, BuildKeys.LAUNCHER_SHORT_NAME),
                             openLicense = { openLicense(R.raw.fcl_license) },
                             openLink = { openLink("https://github.com/FCL-Team/FoldCraftLauncher") }
                         )
                         LinkIconItem(
                             icon = painterResource(R.drawable.img_launcher_hmcl),
                             title = "Hello Minecraft! Launcher",
-                            text = stringResource(R.string.about_acknowledgements_hmcl_text, InfoDistributor.LAUNCHER_SHORT_NAME),
+                            text = stringResource(R.string.about_acknowledgements_hmcl_text, BuildKeys.LAUNCHER_SHORT_NAME),
                             openLicense = { openLicense(R.raw.hmcl_license) },
                             openLink = { openLink("https://github.com/HMCL-dev/HMCL") }
                         )
                         LinkIconItem(
                             icon = painterResource(R.drawable.img_platform_mcmod),
                             title = stringResource(R.string.about_acknowledgements_mcmod),
-                            text = stringResource(R.string.about_acknowledgements_mcmod_text, InfoDistributor.LAUNCHER_SHORT_NAME),
+                            text = stringResource(R.string.about_acknowledgements_mcmod_text, BuildKeys.LAUNCHER_SHORT_NAME),
                             openLink = { openLink(URL_MCMOD) }
+                        )
+                        ButtonIconItem(
+                            icon = painterResource(R.drawable.img_avatar_mcim),
+                            title = "mcmod-info-mirror",
+                            text = stringResource(R.string.about_acknowledgements_mcim_text, BuildKeys.LAUNCHER_SHORT_NAME),
+                            button = {
+                                Button(
+                                    onClick = { openLink("https://www.mcimirror.top/sponsor") }
+                                ) {
+                                    Text(text = stringResource(R.string.about_sponsor))
+                                }
+                            }
                         )
                         LinkIconItem(
                             icon = painterResource(R.drawable.img_launcher_pcl2),
                             title = "Plain Craft Launcher 2",
-                            text = stringResource(R.string.about_acknowledgements_pcl_text, InfoDistributor.LAUNCHER_SHORT_NAME),
+                            text = stringResource(R.string.about_acknowledgements_pcl_text, BuildKeys.LAUNCHER_SHORT_NAME),
                             openLink = { openLink("https://github.com/Meloong-Git/PCL") }
                         )
                         LinkIconItem(
                             icon = painterResource(R.drawable.img_launcher_pojav),
                             title = "PojavLauncher",
-                            text = stringResource(R.string.about_acknowledgements_pojav_text, InfoDistributor.LAUNCHER_SHORT_NAME),
+                            text = stringResource(R.string.about_acknowledgements_pojav_text, BuildKeys.LAUNCHER_SHORT_NAME),
                             openLicense = { openLicense(R.raw.lgpl_3_license) },
                             openLink = { openLink("https://github.com/PojavLauncherTeam/PojavLauncher") }
                         )
@@ -158,7 +207,7 @@ fun AboutInfoScreen(
                             useImage = false
                         )
                         LinkIconItem(
-                            icon = painterResource(R.drawable.img_weblate),
+                            icon = painterResource(R.drawable.img_platform_weblate),
                             title = stringResource(R.string.about_acknowledgements_weblate_community),
                             text = stringResource(R.string.about_acknowledgements_weblate_community_text),
                             openLink = { openLink(URL_WEBLATE) }
@@ -206,24 +255,19 @@ private fun ChunkLayout(
     title: String,
     content: @Composable () -> Unit
 ) {
-    SettingsBackground(
+    SettingsCard(
         modifier = modifier,
-        contentPadding = 0.dp
+        position = CardPosition.Single
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.width(width = 8.dp))
-            HorizontalDivider(
-                modifier = Modifier
-                    .padding(horizontal = 12.dp)
-                    .fillMaxWidth(),
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            CardTitleLayout {
+                Text(
+                    modifier = Modifier.padding(all = 16.dp),
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -243,8 +287,8 @@ private fun LinkIconItem(
     text: String,
     openLicense: (() -> Unit)? = null,
     openLink: (() -> Unit)? = null,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    color: Color = itemColor(),
+    contentColor: Color = onItemColor(),
     useImage: Boolean = true
 ) {
     Surface(
@@ -252,7 +296,6 @@ private fun LinkIconItem(
         color = color,
         contentColor = contentColor,
         shape = MaterialTheme.shapes.large,
-        shadowElevation = 1.dp,
         onClick = {}
     ) {
         Row(
@@ -301,7 +344,7 @@ private fun LinkIconItem(
                     ) {
                         Icon(
                             modifier = Modifier.size(22.dp),
-                            imageVector = Icons.Outlined.Copyright,
+                            painter = painterResource(R.drawable.ic_copyright_outlined),
                             contentDescription = "License"
                         )
                     }
@@ -311,7 +354,7 @@ private fun LinkIconItem(
                         onClick = it
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Link,
+                            painter = painterResource(R.drawable.ic_link),
                             contentDescription = stringResource(R.string.generic_open_link)
                         )
                     }
@@ -327,17 +370,15 @@ private fun ButtonIconItem(
     icon: Painter,
     title: String,
     text: String,
-    buttonText: String,
-    onButtonClick: () -> Unit,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    button: @Composable RowScope.() -> Unit,
+    color: Color = itemColor(),
+    contentColor: Color = onItemColor(),
 ) {
     Surface(
         modifier = modifier,
         color = color,
         contentColor = contentColor,
         shape = MaterialTheme.shapes.large,
-        shadowElevation = 1.dp,
         onClick = {}
     ) {
         Row(
@@ -370,11 +411,7 @@ private fun ButtonIconItem(
                 )
             }
 
-            OutlinedButton(
-                onClick = onButtonClick
-            ) {
-                Text(text = buttonText)
-            }
+            button()
         }
     }
 }
@@ -383,15 +420,14 @@ private fun ButtonIconItem(
 private fun PluginInfoItem(
     apkPlugin: ApkPlugin,
     modifier: Modifier = Modifier,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    color: Color = itemColor(),
+    contentColor: Color = onItemColor(),
 ) {
     Surface(
         modifier = modifier,
         color = color,
         contentColor = contentColor,
         shape = MaterialTheme.shapes.large,
-        shadowElevation = 1.dp,
         onClick = {}
     ) {
         val context = LocalContext.current
@@ -456,8 +492,8 @@ private fun PluginInfoItem(
 private fun LibraryInfoItem(
     info: LibraryInfo,
     modifier: Modifier = Modifier,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    color: Color = itemColor(),
+    contentColor: Color = onItemColor(),
     openLicense: (Int) -> Unit,
     openLink: (url: String) -> Unit
 ) {
@@ -466,7 +502,6 @@ private fun LibraryInfoItem(
         color = color,
         contentColor = contentColor,
         shape = MaterialTheme.shapes.large,
-        shadowElevation = 1.dp,
         onClick = {}
     ) {
         Row(
@@ -511,7 +546,7 @@ private fun LibraryInfoItem(
                 }
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Link,
+                    painter = painterResource(R.drawable.ic_link),
                     contentDescription = null
                 )
             }

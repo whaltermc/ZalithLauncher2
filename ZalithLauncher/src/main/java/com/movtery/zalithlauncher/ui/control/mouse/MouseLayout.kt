@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.control.mouse
 
 import androidx.compose.foundation.layout.Box
@@ -21,10 +39,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
-import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.gif.GifDecoder
+import coil3.request.crossfade
+import coil3.svg.SvgDecoder
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.bridge.CursorShape
 import com.movtery.zalithlauncher.bridge.ZLBridgeStates
@@ -81,6 +101,7 @@ val notAllowedPointerFile: File = PathManager.DIR_MOUSE_POINTER.child("not_allow
 /**
  * 虚拟指针模拟层
  * @param controlMode               控制模式：SLIDE（滑动控制）、CLICK（点击控制）
+ * @param enableMouseClick          是否开启虚拟鼠标点击操作（仅适用于滑动控制）
  * @param longPressTimeoutMillis    长按触发检测时长
  * @param requestPointerCapture     是否使用鼠标抓取方案
  * @param hideMouseInClickMode      是否在鼠标为点击控制模式时，隐藏鼠标指针
@@ -101,6 +122,7 @@ val notAllowedPointerFile: File = PathManager.DIR_MOUSE_POINTER.child("not_allow
 fun VirtualPointerLayout(
     modifier: Modifier = Modifier,
     controlMode: MouseControlMode = AllSettings.mouseControlMode.state,
+    enableMouseClick: Boolean = AllSettings.enableMouseClick.state,
     longPressTimeoutMillis: Long = AllSettings.mouseLongPressDelay.state.toLong(),
     requestPointerCapture: Boolean = !AllSettings.physicalMouseMode.state,
     hideMouseInClickMode: Boolean = AllSettings.hideMouse.state,
@@ -123,6 +145,8 @@ fun VirtualPointerLayout(
     val windowSize = LocalWindowInfo.current.containerSize
     val screenWidth: Float = windowSize.width.toFloat()
     val screenHeight: Float = windowSize.height.toFloat()
+
+    val capturePointer = requestPointerCapture && !rememberTextInputActive()
 
     var showMousePointer by remember {
         mutableStateOf(requestPointerCapture)
@@ -154,7 +178,7 @@ fun VirtualPointerLayout(
     }
 
     Box(modifier = modifier) {
-        val cursorShape = ZLBridgeStates.cursorShape
+        val cursorShape by ZLBridgeStates.cursorShape.collectAsStateWithLifecycle()
 
         if (showMousePointer) {
             MousePointer(
@@ -172,8 +196,9 @@ fun VirtualPointerLayout(
         TouchpadLayout(
             modifier = Modifier.fillMaxSize(),
             controlMode = controlMode,
+            enableMouseClick = enableMouseClick,
             longPressTimeoutMillis = longPressTimeoutMillis,
-            requestPointerCapture = requestPointerCapture,
+            requestPointerCapture = capturePointer,
             pointerIcon = cursorShape.composeIcon,
             onTap = { fingerPos ->
                 onTap(
@@ -189,8 +214,8 @@ fun VirtualPointerLayout(
             },
             onLongPress = onLongPress,
             onLongPressEnd = onLongPressEnd,
-            onPointerMove = { offset ->
-                pointerPosition = if (controlMode == MouseControlMode.SLIDE) {
+            onPointerMove = { offset, isMoveOnly ->
+                pointerPosition = if (isMoveOnly || controlMode == MouseControlMode.SLIDE) {
                     updateMousePointer(true)
                     Offset(
                         x = (pointerPosition.x + offset.x * speedFactor).coerceIn(0f, screenWidth),
@@ -204,7 +229,7 @@ fun VirtualPointerLayout(
                 onPointerMove(pointerPosition)
             },
             onMouseMove = { offset ->
-                if (requestPointerCapture) {
+                if (capturePointer) {
                     updateMousePointer(true)
                     pointerPosition = Offset(
                         x = (pointerPosition.x + offset.x * speedFactor).coerceIn(0f, screenWidth),
@@ -287,7 +312,6 @@ fun getMouseFile(
 
 /**
  * 在屏幕上显示虚拟鼠标指针
- * @param useGlobalImageLoader 是否使用应用全局设置的图片加载器
  */
 @Composable
 fun MousePointer(
@@ -297,17 +321,17 @@ fun MousePointer(
     mouseFile: File?,
     centerIcon: Boolean = false,
     triggerRefresh: Any? = null,
-    useGlobalImageLoader: Boolean = false
+    crossfade: Boolean = false
 ) {
     val context = LocalContext.current
-    val loader = remember(useGlobalImageLoader, triggerRefresh, context) {
-        if (useGlobalImageLoader) {
-            SingletonImageLoader.get(context)
-        } else {
-            ImageLoader.Builder(context)
-                .components { add(GifDecoder.Factory()) }
-                .build()
-        }
+    val loader = remember(triggerRefresh, crossfade, mouseSize) {
+        ImageLoader.Builder(context)
+            .components {
+                add(GifDecoder.Factory())
+                add(SvgDecoder.Factory())
+            }
+            .crossfade(crossfade)
+            .build()
     }
 
     val fileExists by produceState(initialValue = false, triggerRefresh, mouseFile) {

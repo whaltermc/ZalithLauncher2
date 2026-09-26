@@ -1,10 +1,32 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.addons.modloader.modlike
 
-import com.movtery.zalithlauncher.game.download.assets.platform.getVersionsFromModrinth
+import com.movtery.zalithlauncher.game.download.assets.platform.mirroredModrinthSource
+import com.movtery.zalithlauncher.game.download.assets.platform.mirroredPlatformSearcher
 import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthVersion
 import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.getPrimary
+import com.movtery.zalithlauncher.ui.screens.content.download.assets.elements.initAllGeneric
 import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.coroutines.CancellationException
+
+private const val TAG = "ModVersions"
 
 /**
  * 模组版本管理类
@@ -25,7 +47,15 @@ abstract class ModVersions(
         try {
             val versions = run {
                 if (!force && cacheVersions != null) return@run cacheVersions!!
-                getVersionsFromModrinth(modrinthID).also {
+                mirroredPlatformSearcher(
+                    searchers = mirroredModrinthSource()
+                ) { searcher ->
+                    searcher.getVersions(
+                        projectID = modrinthID
+                    ).initAllGeneric(
+                        currentProjectId = modrinthID
+                    )
+                }.also {
                     cacheVersions = it
                 }
             }
@@ -35,7 +65,7 @@ abstract class ModVersions(
                 if (!version.gameVersions.contains(mcVersion)) return@mapNotNull null
                 //仅保留主文件
                 val file = version.files.getPrimary() ?: run {
-                    Logger.lWarning("No file list available, skipping -> ${version.name}")
+                    Logger.warning(TAG, "No file list available, skipping -> ${version.name}")
                     return@mapNotNull null
                 }
                 ModVersion(
@@ -46,10 +76,10 @@ abstract class ModVersions(
                 )
             }
         } catch (_: CancellationException) {
-            Logger.lDebug("Client cancelled.")
+            Logger.debug(TAG, "Client cancelled.")
             return null
         } catch (e: Exception) {
-            Logger.lDebug("Failed to fetch mod list! {mod id = $modrinthID}", e)
+            Logger.debug(TAG, "Failed to fetch mod list! {mod id = $modrinthID}", e)
             throw e
         }
     }

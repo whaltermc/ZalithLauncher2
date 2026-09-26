@@ -1,30 +1,58 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.layer_controller.observable
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.movtery.layer_controller.data.JoystickData
 import com.movtery.layer_controller.data.NormalData
 import com.movtery.layer_controller.data.TextData
 import com.movtery.layer_controller.layout.ControlLayer
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
  * 可观察的ControlLayer包装类
  */
-class ObservableControlLayer(layer: ControlLayer): Packable<ControlLayer> {
+class ObservableControlLayer(
+    private val layer: ControlLayer
+): Packable<ControlLayer> {
     val uuid: String = layer.uuid
 
+    var editorHide by mutableStateOf(layer.hide)
+
     var name by mutableStateOf(layer.name)
-    var hide by mutableStateOf(layer.hide)
+    var hide by mutableStateOf(editorHide)
+    var hideWhenMouse by mutableStateOf(layer.hideWhenMouse)
+    var hideWhenGamepad by mutableStateOf(layer.hideWhenGamepad)
     var visibilityType by mutableStateOf(layer.visibilityType)
     
     private val _normalButtons = MutableStateFlow(layer.normalButtons.map { ObservableNormalData(it) })
-    val normalButtons: StateFlow<List<ObservableNormalData>> = _normalButtons
+    val normalButtons = _normalButtons.asStateFlow()
     
     private val _textBoxes = MutableStateFlow(layer.textBoxes.map { ObservableTextData(it) })
-    val textBoxes: StateFlow<List<ObservableTextData>> = _textBoxes
+    val textBoxes = _textBoxes.asStateFlow()
+
+    private val _joystickButtons = MutableStateFlow(layer.joystickButtons.map { ObservableJoystickData(it) })
+    val joystickButtons = _joystickButtons.asStateFlow()
 
     /**
      * 添加一个普通的按钮
@@ -86,14 +114,51 @@ class ObservableControlLayer(layer: ControlLayer): Packable<ControlLayer> {
         }
     }
 
+    /**
+     * 添加摇杆控件
+     */
+    fun addJoystickButton(joystick: JoystickData) {
+        addJoystickButton(ObservableJoystickData(joystick))
+    }
+
+    /**
+     * 添加摇杆控件
+     */
+    fun addJoystickButton(joystick: ObservableJoystickData) {
+        _joystickButtons.update { it + joystick }
+    }
+
+    /**
+     * 批量添加摇杆控件
+     */
+    fun addAllJoystickButton(joysticks: List<ObservableJoystickData>) {
+        _joystickButtons.update { it + joysticks }
+    }
+
+    /**
+     * 移除摇杆控件
+     */
+    fun removeJoystickButton(uuid: String) {
+        _joystickButtons.update { oldList ->
+            oldList.filterNot { it.uuid == uuid }
+        }
+    }
+
     override fun pack(): ControlLayer {
         return ControlLayer(
             name = name,
             uuid = uuid,
-            hide = hide,
+            hide = editorHide,
+            hideWhenMouse = hideWhenMouse,
+            hideWhenGamepad = hideWhenGamepad,
             visibilityType = visibilityType,
             normalButtons = _normalButtons.value.map { it.packNormal() },
-            textBoxes = _textBoxes.value.map { it.packText() }
+            textBoxes = _textBoxes.value.map { it.packText() },
+            joystickButtons = _joystickButtons.value.map { it.packJoystick() }
         )
+    }
+
+    override fun isModified(): Boolean {
+        return this.layer.isModified(pack())
     }
 }

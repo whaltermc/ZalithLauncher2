@@ -1,24 +1,53 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.activities
 
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.os.Parcel
 import android.os.Parcelable
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import com.jakewharton.processphoenix.ProcessPhoenix
 import com.movtery.zalithlauncher.R
-import com.movtery.zalithlauncher.game.launch.LogName
+import com.movtery.zalithlauncher.context.COPY_LABEL_LINK
 import com.movtery.zalithlauncher.path.PathManager
-import com.movtery.zalithlauncher.ui.base.BaseComponentActivity
+import com.movtery.zalithlauncher.ui.base.BaseAppCompatActivity
 import com.movtery.zalithlauncher.ui.screens.main.ErrorScreen
+import com.movtery.zalithlauncher.ui.screens.main.crashlogs.ShareLinkOperation
 import com.movtery.zalithlauncher.ui.theme.ZalithLauncherTheme
+import com.movtery.zalithlauncher.ui.theme.backgroundColor
+import com.movtery.zalithlauncher.ui.theme.onBackgroundColor
+import com.movtery.zalithlauncher.utils.copyText
 import com.movtery.zalithlauncher.utils.file.shareFile
-import com.movtery.zalithlauncher.utils.getInt
 import com.movtery.zalithlauncher.utils.getParcelableSafely
 import com.movtery.zalithlauncher.utils.getSerializableSafely
+import com.movtery.zalithlauncher.utils.network.openLink
 import com.movtery.zalithlauncher.utils.string.throwableToString
-import com.movtery.zalithlauncher.utils.toBoolean
+import com.movtery.zalithlauncher.viewmodel.LogsUploadViewModel
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.parcelize.Parcelize
 import java.io.File
 
 private const val BUNDLE_EXIT_TYPE = "BUNDLE_EXIT_TYPE"
@@ -28,46 +57,41 @@ private const val BUNDLE_CAN_RESTART = "BUNDLE_CAN_RESTART"
 private const val EXIT_JVM = "EXIT_JVM"
 private const val EXIT_LAUNCHER = "EXIT_LAUNCHER"
 
-fun showExitMessage(context: Context, code: Int, isSignal: Boolean) {
+fun showExitMessage(
+    context: Context,
+    code: Int,
+    isSignal: Boolean,
+    logPath: String
+) {
     val intent = Intent(context, ErrorActivity::class.java).apply {
         addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         putExtra(BUNDLE_EXIT_TYPE, EXIT_JVM)
-        putExtra(BUNDLE_JVM_CRASH, JvmCrash(code, isSignal))
+        putExtra(BUNDLE_JVM_CRASH, JvmCrash(code, isSignal, logPath))
     }
     context.startActivity(intent)
 }
 
-private data class JvmCrash(val code: Int, val isSignal: Boolean) : Parcelable {
-    constructor(parcel: Parcel) : this(
-        parcel.readInt(),
-        parcel.readInt().toBoolean()
-    )
+@Parcelize
+private data class JvmCrash(
+    val code: Int,
+    val isSignal: Boolean,
+    val logPath: String
+): Parcelable
 
-    override fun describeContents(): Int = 0
+@AndroidEntryPoint
+class ErrorActivity : BaseAppCompatActivity() {
 
-    override fun writeToParcel(dest: Parcel, flags: Int) {
-        dest.writeInt(code)
-        dest.writeInt(isSignal.getInt())
-    }
-
-    companion object CREATOR : Parcelable.Creator<JvmCrash> {
-        override fun createFromParcel(parcel: Parcel): JvmCrash {
-            return JvmCrash(parcel)
-        }
-
-        override fun newArray(size: Int): Array<JvmCrash?> {
-            return arrayOfNulls(size)
-        }
-    }
-}
-
-class ErrorActivity : BaseComponentActivity(refreshData = false) {
+    /**
+     * 游戏崩溃日志上传逻辑管理 ViewModel
+     */
+    private val viewModel: LogsUploadViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val extras = intent.extras ?: return runFinish()
+        extras.classLoader = javaClass.classLoader
 
         val exitType = extras.getString(BUNDLE_EXIT_TYPE, EXIT_LAUNCHER)
 
@@ -80,7 +104,11 @@ class ErrorActivity : BaseComponentActivity(refreshData = false) {
                 ErrorMessage(
                     message = message,
                     messageBody = messageBody,
-                    crashType = CrashType.GAME_CRASH
+                    crashType = CrashType.GAME_CRASH,
+                    logFile = File(jvmCrash.logPath).also { file ->
+                        //检查日志文件是否适合上传
+                        viewModel.check(file)
+                    }
                 )
             }
             else -> {
@@ -90,42 +118,65 @@ class ErrorActivity : BaseComponentActivity(refreshData = false) {
                 ErrorMessage(
                     message = message,
                     messageBody = messageBody,
-                    crashType = CrashType.LAUNCHER_CRASH
+                    crashType = CrashType.LAUNCHER_CRASH,
+                    logFile = PathManager.FILE_CRASH_REPORT
                 )
             }
         }
 
-        val logFile = when (exitType) {
-            EXIT_JVM -> {
-                File(PathManager.DIR_FILES_EXTERNAL, "${LogName.GAME.fileName}.log")
-            }
-            else -> {
-                PathManager.FILE_CRASH_REPORT
-            }
-        }
-
+        val logFile = errorMessage.logFile
         val canRestart: Boolean = extras.getBoolean(BUNDLE_CAN_RESTART, true)
+        val logExists = logFile.exists() && logFile.isFile
 
         setContent {
             ZalithLauncherTheme {
-                Box {
+                ShareLinkOperation(
+                    operation = viewModel.operation,
+                    onChange = { viewModel.operation = it },
+                    onUploadChancel = { viewModel.cancel() },
+                    onUpload = {
+                        viewModel.upload(logFile) { link ->
+                            openLink(link)
+                            copyText(COPY_LABEL_LINK, link, this@ErrorActivity)
+                        }
+                    }
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = backgroundColor(),
+                    contentColor = onBackgroundColor()
+                ) {
                     ErrorScreen(
                         crashType = errorMessage.crashType,
-                        message = errorMessage.message,
-                        messageBody = errorMessage.messageBody,
-                        shareLogs = logFile.exists() && logFile.isFile,
+                        shareLogs = logExists,
+                        canUpload = viewModel.canUpload,
                         canRestart = canRestart,
                         onShareLogsClick = {
-                            if (logFile.exists() && logFile.isFile) {
+                            if (logExists) {
                                 shareFile(this@ErrorActivity, logFile)
                             }
                         },
-                        onRestartClick = {
-                            startActivity(Intent(this@ErrorActivity, MainActivity::class.java))
-                            finish()
+                        onUploadClick = {
+                            viewModel.operation = ShareLinkOperation.Tip
                         },
-                        onExitClick = { finish() }
-                    )
+                        onRestartClick = {
+                            ProcessPhoenix.triggerRebirth(this@ErrorActivity)
+                        },
+                        onExitClick = { finish() },
+                        onOrientationChanged = {
+                            this@ErrorActivity.requestedOrientation = it
+                        },
+                    ) {
+                        Text(
+                            text = errorMessage.message,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = errorMessage.messageBody,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
         }
@@ -134,7 +185,8 @@ class ErrorActivity : BaseComponentActivity(refreshData = false) {
     private data class ErrorMessage(
         val message: String,
         val messageBody: String,
-        val crashType: CrashType
+        val crashType: CrashType,
+        val logFile: File
     )
 }
 

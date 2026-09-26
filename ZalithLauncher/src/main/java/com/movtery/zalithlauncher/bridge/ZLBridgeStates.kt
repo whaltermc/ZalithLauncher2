@@ -1,39 +1,63 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.bridge
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.pointer.PointerIcon
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import android.view.PointerIcon as NativePointerIcon
 
 object ZLBridgeStates {
-    /**
-     * 状态：指针模式（启用、禁用）
-     */
-    @JvmStatic
-    var cursorMode by mutableIntStateOf(CURSOR_ENABLED)
+
+    private val _cursorMode = MutableStateFlow(CURSOR_ENABLED)
+    /** 状态：指针模式（启用、禁用） */
+    val cursorMode = _cursorMode.asStateFlow()
 
     /**
-     * 状态：指针形状
+     * 变更指针模式
      */
     @JvmStatic
-    var cursorShape by mutableStateOf(CursorShape.Arrow)
+    fun changeCursorMode(mode: Int) {
+        require(mode in 0..1)
+        this._cursorMode.update { mode }
+    }
+
+    private val _cursorShape = MutableStateFlow(CursorShape.Arrow)
+    /** 状态：指针形状 */
+    val cursorShape = _cursorShape.asStateFlow()
 
     /**
-     * 状态：当前画面帧率
+     * 变更指针形状
      */
     @JvmStatic
-    var currentFPS by mutableIntStateOf(0)
+    fun changeCursorShape(shape: CursorShape) {
+        _cursorShape.update { shape }
+    }
 
-    /**
-     * 莊濤：窗口变更刷新key
-     */
     @JvmStatic
-    var windowChangeKey by mutableStateOf(false)
+    private val _windowChangeKey = MutableStateFlow(false)
+    /** 状态：窗口变更刷新key */
+    val windowChangeKey = _windowChangeKey.asStateFlow()
 
     fun onWindowChange() {
-        this.windowChangeKey = !this.windowChangeKey
+        this._windowChangeKey.update { old -> old.not() }
     }
 }
 

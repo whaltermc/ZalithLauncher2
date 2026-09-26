@@ -1,8 +1,24 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.jvm_server
 
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +32,8 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.SocketException
 import java.net.UnknownHostException
+
+private const val TAG = "JVMSocketServer"
 
 /**
  * [Reference FCL](https://github.com/FCL-Team/FoldCraftLauncher/blob/main/FCLCore/src/main/java/com/tungsten/fclcore/util/SocketServer.java)
@@ -41,6 +59,8 @@ object JVMSocketServer {
     ) {
         this.ip = ip
         this.port = port
+        //清空上一轮的接收结果，防止陈旧退出码被当作本轮结果消费
+        receiveMsg = null
 
         scope?.let {
             it.cancel()
@@ -53,11 +73,11 @@ object JVMSocketServer {
             packet = DatagramPacket(bytes, bytes.size)
             try {
                 socket = DatagramSocket(port, InetAddress.getByName(ip))
-                lInfo("Socket server init!")
+                Logger.info(TAG, "Socket server init!")
             } catch (e: SocketException) {
-                lError("Failed to init socket server", e)
+                Logger.error(TAG, "Failed to init socket server", e)
             } catch (e: UnknownHostException) {
-                lError("Failed to init socket server", e)
+                Logger.error(TAG, "Failed to init socket server", e)
             }
 
             startServer(onReceive)
@@ -71,20 +91,20 @@ object JVMSocketServer {
             if (packet == null || socket == null) {
                 return@launch
             }
-            lInfo("Socket server $ip:$port start!")
+            Logger.info(TAG, "Socket server $ip:$port start!")
 
             while (true) {
                 try {
                     ensureActive()
                     socket!!.receive(packet)
                     val receiveMsg = String(packet!!.data, packet!!.offset, packet!!.length)
-                    lInfo("receive msg: $receiveMsg")
+                    Logger.info(TAG, "receive msg: $receiveMsg")
                     this@JVMSocketServer.receiveMsg = receiveMsg
                     onReceive(receiveMsg)
                 } catch (e: Exception) {
                     if (e is CancellationException) return@launch
                     else {
-                        lWarning("Socket server $ip:$port crashed!", e)
+                        Logger.warning(TAG, "Socket server $ip:$port crashed!", e)
                     }
                 }
             }
@@ -102,7 +122,7 @@ object JVMSocketServer {
     fun stop() {
         socket?.let {
             it.close()
-            lInfo("Socket server $ip:$port stopped!")
+            Logger.info(TAG, "Socket server $ip:$port stopped!")
         }
         scope?.cancel()
         scope = null

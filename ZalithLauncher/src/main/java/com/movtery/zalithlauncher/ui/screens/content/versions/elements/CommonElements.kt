@@ -1,11 +1,30 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.versions.elements
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -17,13 +36,22 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import coil3.compose.AsyncImage
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.game.text.MINECRAFT_COLOR_FORMAT
+import com.movtery.zalithlauncher.game.text.WHITE
+import com.movtery.zalithlauncher.game.version.multiplayer.description.ComponentDescription
+import com.movtery.zalithlauncher.ui.androidText
+import com.movtery.zalithlauncher.ui.buildAppendedText
 import com.movtery.zalithlauncher.ui.components.SimpleAlertDialog
 import com.movtery.zalithlauncher.ui.components.SimpleEditDialog
 import com.movtery.zalithlauncher.ui.components.SimpleTaskDialog
@@ -76,7 +104,6 @@ fun DeleteAllOperation(
             )
         }
         is DeleteAllOperation.Delete -> {
-            val context = LocalContext.current
             SimpleTaskDialog(
                 title = stringResource(R.string.manage_delete_all),
                 task = {
@@ -91,11 +118,14 @@ fun DeleteAllOperation(
                 context = Dispatchers.IO,
                 onDismiss = {},
                 onError = { th ->
-                    val message = context.getString(R.string.manage_delete_all_error)
                     submitError(
                         ErrorViewModel.ThrowableMessage(
-                            title = context.getString(R.string.generic_error),
-                            message = message + "\r\n" + th.getMessageOrToString()
+                            title = androidText(R.string.generic_error),
+                            message = buildAppendedText {
+                                append(R.string.manage_delete_all_error)
+                                append("\r\n")
+                                append(th.getMessageOrToString())
+                            }
                         )
                     )
                 }
@@ -113,41 +143,6 @@ fun DeleteAllOperation(
 }
 
 /**
- * Minecraft 的 `§` 颜色占位符，参考 [Minecraft Wiki](https://zh.minecraft.wiki/w/%E6%A0%BC%E5%BC%8F%E5%8C%96%E4%BB%A3%E7%A0%81#%E9%A2%9C%E8%89%B2%E4%BB%A3%E7%A0%81)
- */
-val MINECRAFT_COLOR_FORMAT = mapOf(
-    '0' to (Color(0xFF000000) to Color(0xFF000000)),
-    '1' to (Color(0xFF0000AA) to Color(0xFF00002A)),
-    '2' to (Color(0xFF00AA00) to Color(0xFF002A00)),
-    '3' to (Color(0xFF00AAAA) to Color(0xFF002A2A)),
-    '4' to (Color(0xFFAA0000) to Color(0xFF2A0000)),
-    '5' to (Color(0xFFAA00AA) to Color(0xFF2A002A)),
-    '6' to (Color(0xFFFFAA00) to Color(0xFF2A2A00)), //仅 JE，BE 为 #402A00
-    '7' to (Color(0xFFAAAAAA) to Color(0xFF2A2A2A)),
-    '8' to (Color(0xFF555555) to Color(0xFF151515)),
-    '9' to (Color(0xFF5555FF) to Color(0xFF15153F)),
-    'a' to (Color(0xFF55FF55) to Color(0xFF153F15)),
-    'b' to (Color(0xFF55FFFF) to Color(0xFF153F3F)),
-    'c' to (Color(0xFFFF5555) to Color(0xFF3F1515)),
-    'd' to (Color(0xFFFF55FF) to Color(0xFF3F153F)),
-    'e' to (Color(0xFFFFFF55) to Color(0xFF3F3F15)),
-    'f' to (Color(0xFFFFFFFF) to Color(0xFF3F3F3F)),
-//    以下仅 BE
-//    'g' to (Color(0xFFDDD605) to Color(0xFF373501)),
-//    'h' to (Color(0xFFE3D4D1) to Color(0xFF383534)),
-//    'i' to (Color(0xFFCECACA) to Color(0xFF333232)),
-//    'j' to (Color(0xFF443A3B) to Color(0xFF110E0E)),
-//    'm' to (Color(0xFF971607) to Color(0xFF250501)),
-//    'n' to (Color(0xFFB4684D) to Color(0xFF2D1A13)),
-//    'p' to (Color(0xFFDEB12D) to Color(0xFF372C0B)),
-//    'q' to (Color(0xFF47A036) to Color(0xFF04280D)),
-//    's' to (Color(0xFF2CBAA8) to Color(0xFF0B2E2A)),
-//    't' to (Color(0xFF21497B) to Color(0xFF08121E)),
-//    'u' to (Color(0xFF9A5CC6) to Color(0xFF261731)),
-//    'v' to (Color(0xFFEB7114) to Color(0xFF3B1D05))
-)
-
-/**
  * Minecraft 颜色占位符、样式占位符格式化后的 Text
  * 像 Minecraft 一样，渲染两层文本，底层作为背景层，顶层作为前景层
  * 若输入字符串内不存在 `§`，则使用普通的 Text
@@ -157,24 +152,36 @@ fun MinecraftColorTextNormal(
     modifier: Modifier = Modifier,
     inputText: String,
     style: TextStyle,
-    maxLines: Int = Int.MAX_VALUE
+    maxLines: Int = Int.MAX_VALUE,
 ) {
     if (inputText.contains("§")) {
         MinecraftColorText(
             modifier = modifier,
             inputText = inputText,
             fontSize = style.fontSize,
-            maxLines = maxLines
+            maxLines = maxLines,
+            style = style,
         )
     } else {
+        val density = LocalDensity.current
+        val lineHeight: TextUnit = with(density) {
+            (style.fontSize.toPx() * 1.1f).toSp()
+        }
+
         Text(
             modifier = modifier,
             text = inputText,
             style = style,
-            maxLines = maxLines
+            maxLines = maxLines,
+            lineHeight = lineHeight
         )
     }
 }
+
+/** 格式化类型：只渲染前景层 */
+private const val FORMAT_TYPE_FOREGROUND = 0
+/** 格式化类型：只渲染背景层 */
+private const val FORMAT_TYPE_BACKGROUND = 1
 
 /**
  * Minecraft 颜色占位符、样式占位符格式化后的 Text
@@ -185,33 +192,80 @@ fun MinecraftColorText(
     modifier: Modifier = Modifier,
     inputText: String,
     fontSize: TextUnit = TextUnit.Unspecified,
-    maxLines: Int = Int.MAX_VALUE
+    maxLines: Int = Int.MAX_VALUE,
+    style: TextStyle = LocalTextStyle.current,
 ) {
-    val segments = remember(inputText) { parseSegments(inputText) }
+    val (foreground, background) = remember(inputText) {
+        val segments = parseSegments(inputText)
+        buildTextWithSegments(segments, FORMAT_TYPE_FOREGROUND) to
+        buildTextWithSegments(segments, FORMAT_TYPE_BACKGROUND)
+    }
+
+    MinecraftColorText(
+        modifier = modifier,
+        foreground = foreground,
+        background = background,
+        fontSize = fontSize,
+        maxLines = maxLines,
+        style = style,
+    )
+}
+
+@Composable
+private fun MinecraftColorText(
+    foreground: AnnotatedString,
+    background: AnnotatedString,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    maxLines: Int = Int.MAX_VALUE,
+    softWrap: Boolean = false,
+    style: TextStyle = LocalTextStyle.current.merge(fontSize = fontSize),
+) {
     val density = LocalDensity.current
+
+    val lineHeight: TextUnit = with(density) {
+        (style.fontSize.toPx() * 1.1f).toSp()
+    }
 
     //计算出合适的偏移量
     val offsetFactor = 1f / 16f
-    val offsetDp = with(density) { (fontSize.toPx() * offsetFactor).toDp() }
+    val offsetDp = with(density) {
+        (style.fontSize.toPx() * offsetFactor).toDp()
+    }
 
-    Row(modifier = modifier) {
-        segments.forEach { (text, style) ->
-            Box {
-                //背景层
-                Text(
-                    text = text,
-                    style = style.toTextStyle().copy(color = style.background),
-                    fontSize = fontSize,
-                    maxLines = maxLines,
-                    modifier = Modifier.offset(x = offsetDp, y = offsetDp)
-                )
-                //前景层
-                Text(
-                    text = text,
-                    style = style.toTextStyle(),
-                    fontSize = fontSize,
-                    maxLines = maxLines,
-                )
+    Box(
+        modifier = modifier
+    ) {
+        //背景层
+        Text(
+            text = background,
+            fontSize = fontSize,
+            maxLines = maxLines,
+            modifier = Modifier.offset(x = offsetDp, y = offsetDp),
+            lineHeight = lineHeight,
+            softWrap = softWrap,
+            style = style,
+        )
+        //前景层
+        Text(
+            text = foreground,
+            fontSize = fontSize,
+            maxLines = maxLines,
+            lineHeight = lineHeight,
+            softWrap = softWrap,
+            style = style,
+        )
+    }
+}
+
+private fun buildTextWithSegments(
+    segments: List<Pair<String, TextStyleState>>,
+    type: Int = FORMAT_TYPE_FOREGROUND
+): AnnotatedString {
+    return buildAnnotatedString {
+        segments.forEach { (text, styleState) ->
+            withStyle(styleState.toSpanStyle(type)) {
+                append(text)
             }
         }
     }
@@ -235,7 +289,10 @@ private fun parseSegments(input: String): List<Pair<String, TextStyleState>> {
             currentStyle = when (code) {
                 in MINECRAFT_COLOR_FORMAT -> {
                     val colors = MINECRAFT_COLOR_FORMAT[code]!!
-                    currentStyle.copy(color = colors.first, background = colors.second)
+                    currentStyle.copy(
+                        color = colors.foreground,
+                        background = colors.background
+                    )
                 }
                 'r' -> TextStyleState() //重置样式
                 'l' -> currentStyle.copy(bold = true)
@@ -259,6 +316,92 @@ private fun parseSegments(input: String): List<Pair<String, TextStyleState>> {
     return segments
 }
 
+private fun parseTextWithStyle(input: ComponentDescription) =
+    input.text to TextStyleState(
+        color = input.color?.foreground ?: WHITE.foreground,
+        background = input.color?.background ?: WHITE.background,
+        bold = input.bold ?: false,
+        italic = input.italic ?: false,
+        underline = input.underlined ?: false,
+        strikethrough = input.strikethrough ?: false,
+    )
+
+/**
+ * 拼接单节点所有文本组件
+ * @param description 文本组件节点
+ */
+private fun flattenComponents(
+    description: ComponentDescription,
+    out: MutableList<Pair<String, TextStyleState>>
+) {
+    if (description.text.isNotEmpty()) {
+        if (description.text.contains('§')) {
+            out.addAll(parseSegments(description.text))
+        } else {
+            out += parseTextWithStyle(description)
+        }
+    }
+
+    description.extra.forEach { child ->
+        flattenComponents(child, out)
+    }
+}
+
+private fun parseComponentSegments(
+    descriptions: List<ComponentDescription>
+): List<Pair<String, TextStyleState>> {
+    val result = mutableListOf<Pair<String, TextStyleState>>()
+    descriptions.forEach {
+        flattenComponents(it, result)
+    }
+    return result
+}
+
+/**
+ * 模仿 Minecraft 原版对于文本组件的渲染
+ */
+@Composable
+fun ComponentText(
+    descriptions: List<ComponentDescription>,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    maxLines: Int = Int.MAX_VALUE,
+    softWrap: Boolean = false,
+) {
+    val density = LocalDensity.current
+
+    val lineHeight: TextUnit = with(density) {
+        (fontSize.toPx() * 1.1f).toSp()
+    }
+
+    val offsetFactor = 1f / 16f
+    val offsetDp = with(density) { (fontSize.toPx() * offsetFactor).toDp() }
+
+    val (foreground, background) = remember(descriptions) {
+        val segments = parseComponentSegments(descriptions)
+        buildTextWithSegments(segments, FORMAT_TYPE_FOREGROUND) to
+        buildTextWithSegments(segments, FORMAT_TYPE_BACKGROUND)
+    }
+
+    Box(modifier = modifier) {
+        Text(
+            modifier = Modifier.offset(offsetDp, offsetDp),
+            text = background,
+            fontSize = fontSize,
+            maxLines = maxLines,
+            lineHeight = lineHeight,
+            softWrap = softWrap,
+        )
+        Text(
+            text = foreground,
+            fontSize = fontSize,
+            maxLines = maxLines,
+            lineHeight = lineHeight,
+            softWrap = softWrap,
+        )
+    }
+}
+
 /**
  * @param color 前景颜色
  * @param background 背景颜色，默认为深灰色
@@ -268,23 +411,36 @@ private fun parseSegments(input: String): List<Pair<String, TextStyleState>> {
  * @param strikethrough 删除线
  */
 private data class TextStyleState(
-    val color: Color = Color.White,
-    val background: Color = Color(0xFF3F3F3F),
+    val color: Color? = WHITE.foreground,
+    val background: Color? = WHITE.background,
     val bold: Boolean = false,
     val italic: Boolean = false,
     val underline: Boolean = false,
     val strikethrough: Boolean = false
-) {
-    fun toTextStyle(): TextStyle = TextStyle(
-        color = color,
-        fontWeight = if (bold) FontWeight.Bold else null,
-        fontStyle = if (italic) FontStyle.Italic else null,
-        textDecoration = TextDecoration.combine(
-            listOfNotNull(
-                if (underline) TextDecoration.Underline else null,
-                if (strikethrough) TextDecoration.LineThrough else null
-            )
-        )
+)
+
+private fun TextStyleState.toSpanStyle(
+    type: Int
+): SpanStyle {
+    val isForeground = type == FORMAT_TYPE_FOREGROUND
+
+    return SpanStyle(
+        color = if (isForeground) {
+            color ?: Color.Unspecified
+        } else {
+            background ?: Color.Transparent
+        },
+        fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+        fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+        textDecoration = when {
+            underline && strikethrough ->
+                TextDecoration.combine(
+                    listOf(TextDecoration.Underline, TextDecoration.LineThrough)
+                )
+            underline -> TextDecoration.Underline
+            strikethrough -> TextDecoration.LineThrough
+            else -> TextDecoration.None
+        }
     )
 }
 
@@ -298,11 +454,12 @@ fun FileNameInputDialog(
     onConfirm: (vale: String) -> Unit = {}
 ) {
     var value by remember { mutableStateOf(initValue) }
-    var errorMessage by remember { mutableStateOf("") }
 
-    val isError = value.isEmpty() || isFilenameInvalid(value) { message ->
-        errorMessage = message
-    } || existsCheck(value).also { if (it != null) errorMessage = it } != null
+    val filenameInvalidMessage = key(value) {
+        isFilenameInvalid(value)
+    }
+    val existsText = key(value) { existsCheck(value) }
+    val isError = value.isEmpty() || filenameInvalidMessage != null || existsText != null
 
     SimpleEditDialog(
         title = title,
@@ -315,7 +472,8 @@ fun FileNameInputDialog(
         supportingText = {
             when {
                 value.isEmpty() -> Text(text = stringResource(R.string.generic_cannot_empty))
-                isError -> Text(text = errorMessage)
+                filenameInvalidMessage != null -> Text(text = filenameInvalidMessage)
+                existsText != null -> Text(text = existsText)
             }
         },
         singleLine = true,

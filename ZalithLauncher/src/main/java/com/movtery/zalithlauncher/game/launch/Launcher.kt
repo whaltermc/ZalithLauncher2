@@ -1,76 +1,154 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.launch
 
 import android.content.Context
 import android.os.Build
-import android.system.ErrnoException
+import android.os.LocaleList
 import android.system.Os
 import android.util.ArrayMap
 import androidx.annotation.CallSuper
 import androidx.compose.ui.unit.IntSize
+import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.bridge.LoggerBridge
 import com.movtery.zalithlauncher.bridge.ZLBridge
 import com.movtery.zalithlauncher.bridge.ZLNativeInvoker
+import com.movtery.zalithlauncher.components.Components
+import com.movtery.zalithlauncher.components.UnpackComponentsTask
+import com.movtery.zalithlauncher.context.GlobalContext
 import com.movtery.zalithlauncher.game.multirt.Runtime
 import com.movtery.zalithlauncher.game.multirt.RuntimesManager
-import com.movtery.zalithlauncher.game.path.GamePathManager
 import com.movtery.zalithlauncher.game.path.getGameHome
 import com.movtery.zalithlauncher.game.plugin.ffmpeg.FFmpegPluginManager
+import com.movtery.zalithlauncher.game.plugin.natives.NativePluginManager
 import com.movtery.zalithlauncher.game.plugin.renderer.RendererPluginManager
-import com.movtery.zalithlauncher.info.InfoDistributor
 import com.movtery.zalithlauncher.path.LibPath
 import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.setting.AllSettings
+import com.movtery.zalithlauncher.setting.unit.getOrMin
 import com.movtery.zalithlauncher.utils.device.Architecture
 import com.movtery.zalithlauncher.utils.device.Architecture.ARCH_X86
 import com.movtery.zalithlauncher.utils.device.Architecture.is64BitsDevice
-import com.movtery.zalithlauncher.utils.file.child
-import com.movtery.zalithlauncher.utils.getDisplayFriendlyRes
-import com.movtery.zalithlauncher.utils.logging.Logger.lDebug
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
+import com.movtery.zalithlauncher.utils.network.getSystemDnsServerAddresses
+import com.movtery.zalithlauncher.utils.string.getMessageOrToString
+import com.movtery.zalithlauncher.utils.string.splitPreservingQuotes
 import com.oracle.dalvik.VMLauncher
-import org.lwjgl.glfw.CallbackBridge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.apache.commons.io.FileUtils
 import java.io.File
+import java.io.IOException
+import java.util.Locale
 import java.util.TimeZone
 
+private const val TAG = "Launcher"
+
 abstract class Launcher(
-    val onExit: (code: Int, isSignal: Boolean) -> Unit
+    val onExit: (code: Int, isSignal: Boolean) -> Unit,
+    val openPath: (folder: File) -> Unit
 ) {
     lateinit var runtime: Runtime
         protected set
+
+    /** 当前启动版本要求的 LWJGL 版本（见 [detectLwjglVersion]），0 = 未探测/默认 */
+    protected var lwjglVersion: Int = 0
+        private set
+
+    /**
+     * 当前启动版本的 LWJGL natives 目录
+     */
+    protected lateinit var lwjglNativesDir: String
+        private set
+
+    /**
+     * 初始化 LWJGL 组件
+     */
+    protected suspend fun initLwjglComponent(context: Context, version: Int) {
+        check(!::lwjglNativesDir.isInitialized) { "LWJGL component has already been initialized" }
+        lwjglVersion = version
+        lwjglNativesDir = File(
+            PathManager.DIR_COMPONENTS,
+            "lwjgl/${lwjglVersionDir(version)}/natives/${Architecture.archAsStringAndroid(Architecture.getDeviceArchitecture())}"
+        ).absolutePath
+        verifyLwjglNatives(context)
+    }
+
+    private suspend fun verifyLwjglNatives(context: Context) {
+        val versionDir = lwjglVersionDir(lwjglVersion)
+        val coreLib = File(lwjglNativesDir, "liblwjgl.so")
+
+        if (coreLib.isFile) {
+            LoggerBridge.appendInfo("LWJGL: LWJGL $versionDir natives check passed: path=$lwjglNativesDir (liblwjgl.so found)")
+            return
+        }
+
+        LoggerBridge.appendInfo("LWJGL: LWJGL natives check failed: liblwjgl.so not found in $lwjglNativesDir, re-unpacking the LWJGL component now")
+
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val component = Components.entries.firstOrNull {
+                    it.component == "lwjgl/$versionDir"
+                } ?: error("Unrecognized LWJGL component: lwjgl/$versionDir")
+                UnpackComponentsTask(context, component).run()
+            }.onFailure { e ->
+                LoggerBridge.appendInfo("LWJGL: Failed to re-unpack the LWJGL component: ${e.getMessageOrToString()}")
+            }
+        }
+
+        if (coreLib.isFile) {
+            LoggerBridge.appendInfo("LWJGL: LWJGL $versionDir natives check passed after re-unpack: path=$lwjglNativesDir (liblwjgl.so found)")
+        } else {
+            LoggerBridge.appendInfo("LWJGL: LWJGL natives are still missing after re-unpack: liblwjgl.so not found in $lwjglNativesDir, the game may fail to launch")
+        }
+    }
 
     private val runtimeHome: String by lazy {
         RuntimesManager.getRuntimeHome(runtime.name).absolutePath
     }
 
-    var libraryPath: String = ""
-        private set
+    private fun getJavaHome() = if (runtime.isJDK8) "$runtimeHome/jre" else runtimeHome
 
-    private var dirNameHomeJre: String = "lib"
-    private var jvmLibraryPath: String = ""
-
-    private fun getJavaHome() = if (checkJDK()) "$runtimeHome/jre" else runtimeHome
-    private fun checkJDK() = runtime.isJDK && File(runtimeHome, "jre").exists()
-
-    abstract suspend fun launch(): Int
+    abstract suspend fun launch(screenSize: IntSize): Int
     abstract fun chdir(): String
-    abstract fun getLogName(): String
+    abstract fun getLogFile(): File
     abstract fun exit()
+
+    /**
+     * 游戏目录（.minecraft），默认为当前选择的游戏目录
+     */
+    protected open fun getMinecraftPath(): String = getGameHome()
 
     protected suspend fun launchJvm(
         context: Context,
         jvmArgs: List<String>,
-        userHome: String? = null,
+        userHome: String,
         userArgs: String,
-        getWindowSize: () -> IntSize
+        screenSize: IntSize,
+        useLocalLanguage: Boolean = true
     ): Int {
         ZLNativeInvoker.staticLauncher = this
 
-        initLdLibraryPath()
+        ZLBridge.setLdLibraryPath(getRuntimeLibraryPath())
 
         LoggerBridge.appendTitle("Env Map")
-        setEnv()
+        setEnv(screenSize)
 
         LoggerBridge.appendTitle("DLOPEN Java Runtime")
         dlopenJavaRuntime()
@@ -82,7 +160,8 @@ abstract class Launcher(
             jvmArgs = jvmArgs,
             userHome = userHome,
             userArgs = userArgs,
-            getWindowSize = getWindowSize
+            screenSize = screenSize,
+            useLocalLanguage = useLocalLanguage
         )
     }
 
@@ -90,15 +169,21 @@ abstract class Launcher(
     private suspend fun launchJavaVM(
         context: Context,
         jvmArgs: List<String>,
-        userHome: String? = null,
+        userHome: String,
         userArgs: String,
-        getWindowSize: () -> IntSize
+        screenSize: IntSize,
+        useLocalLanguage: Boolean
     ): Int {
-        val windowSize = getWindowSize()
-        val args = getJavaArgs(userHome, userArgs, windowSize).toMutableList()
+        val args = getJavaArgs(
+            userHome = userHome,
+            userArgumentsString = userArgs,
+            screenSize = screenSize,
+            useLocalLanguage = useLocalLanguage
+        ).toMutableList()
         progressFinalUserArgs(args)
 
         args.addAll(jvmArgs)
+        args.add(0, "$runtimeHome/bin/java")
 
         LoggerBridge.appendTitle("JVM Args")
         val iterator = args.iterator()
@@ -106,18 +191,16 @@ abstract class Launcher(
             val arg = iterator.next()
             if (arg.startsWith("--accessToken") && iterator.hasNext()) {
                 iterator.next()
-                LoggerBridge.append("JVMArgs: $arg")
-                LoggerBridge.append("JVMArgs: ********************")
+                LoggerBridge.appendInfo(arg)
+                LoggerBridge.appendInfo("********************")
                 continue
             }
-            LoggerBridge.append("JVMArgs: $arg")
+            LoggerBridge.appendInfo(arg)
         }
 
         ZLBridge.setupExitMethod(context.applicationContext)
         ZLBridge.initializeGameExitHook()
         ZLBridge.chdir(chdir())
-
-        args.add(0, "java") //argv[0] is the program name according to C standard.
 
         val exitCode = VMLauncher.launchJVM(args.toTypedArray())
         LoggerBridge.append("Java Exit code: $exitCode")
@@ -130,30 +213,36 @@ abstract class Launcher(
     protected open fun MutableMap<String, String>.putJavaArgs() {}
 
     private fun getJavaArgs(
-        userHome: String? = null,
+        userHome: String,
         userArgumentsString: String,
-        windowSize: IntSize
+        screenSize: IntSize,
+        useLocalLanguage: Boolean
     ): List<String> {
-        val userArguments = parseJavaArguments(userArgumentsString).toMutableList()
-        val resolvFile = File(PathManager.DIR_FILES_PRIVATE.parent, "resolv.conf").absolutePath
+        val userArguments = userArgumentsString.splitPreservingQuotes().toMutableList()
+        val resolvFile = ensureDNSConfig()
 
         val overridableArguments = mutableMapOf<String, String>().apply {
             put("java.home", getJavaHome())
             put("java.io.tmpdir", PathManager.DIR_CACHE.absolutePath)
             put("jna.boot.library.path", PathManager.DIR_NATIVE_LIB)
-            put("user.home", userHome ?: GamePathManager.getUserHome())
-            System.getProperty("user.language")?.let { put("user.language", it) }
+            put("user.home", userHome)
+            if (useLocalLanguage) {
+                put("user.language", System.getProperty("user.language") ?: "en")
+                put("user.country", Locale.getDefault().country)
+            }
+            put("user.timezone", TimeZone.getDefault().id)
             put("os.name", "Linux")
             put("os.version", "Android-${Build.VERSION.RELEASE}")
-            put("pojav.path.minecraft", getGameHome())
+            put("pojav.path.minecraft", getMinecraftPath())
             put("pojav.path.private.account", PathManager.DIR_DATA_BASES.absolutePath)
-            put("user.timezone", TimeZone.getDefault().id)
             put("org.lwjgl.vulkan.libname", "libvulkan.so")
-            val scaleFactor = AllSettings.resolutionRatio.getValue() / 100f
-            put("glfwstub.windowWidth", getDisplayFriendlyRes(windowSize.width, scaleFactor).toString())
-            put("glfwstub.windowHeight", getDisplayFriendlyRes(windowSize.height, scaleFactor).toString())
+            // LWJGL 3.4 的 Library.loadSystem 通过该属性定位 native 库。
+            // 指向 per-version natives 目录，保证 3.4.x 游戏加载对应版本的 liblwjgl.so 等。
+            put("org.lwjgl.librarypath", lwjglNativesDir)
+            put("glfwstub.windowWidth", screenSize.width.toString())
+            put("glfwstub.windowHeight", screenSize.height.toString())
             put("glfwstub.initEgl", "false")
-            put("ext.net.resolvPath", resolvFile)
+            put("ext.net.resolvPath", resolvFile.absolutePath)
 
             put("log4j2.formatMsgNoLookups", "true")
             // Fix RCE vulnerability of log4j2
@@ -161,7 +250,7 @@ abstract class Launcher(
             put("com.sun.jndi.rmi.object.trustURLCodebase", "false")
             put("com.sun.jndi.cosnaming.object.trustURLCodebase", "false")
 
-            put("net.minecraft.clientmodname", InfoDistributor.LAUNCHER_NAME)
+            put("net.minecraft.clientmodname", BuildKeys.LAUNCHER_NAME)
 
             // fml
             put("fml.earlyprogresswindow", "false")
@@ -173,6 +262,12 @@ abstract class Launcher(
 
             put("sodium.checks.issue2561", "false")
 
+            put("file.encoding", "UTF-8")
+            put("sun.stdout.encoding", "UTF-8")
+            put("sun.stderr.encoding", "UTF-8")
+
+            put("cpu.name", getSocName())
+
             putJavaArgs()
         }.map { entry ->
             "-D${entry.key}=${entry.value}"
@@ -182,7 +277,7 @@ abstract class Launcher(
             val stripped = arg.substringBefore('=')
             val overridden = userArguments.any { it.startsWith(stripped) }
             if (overridden) {
-                lInfo("Arg skipped: $arg")
+                Logger.info(TAG, "Arg skipped: $arg")
             }
             !overridden
         }
@@ -192,12 +287,50 @@ abstract class Launcher(
     }
 
     /**
+     * 确保 DNS 配置文件存在
+     */
+    private fun ensureDNSConfig(): File {
+        val resolvFile = File(PathManager.DIR_GAME, "resolv.conf")
+        val servers = buildResolvConfSet()
+        Logger.info(TAG, "Using DNS servers for game: $servers")
+        val configText = servers.joinToString(separator = "\n") { "nameserver $it" }
+        runCatching {
+            // 配置文件不存在或内容不一致时覆写一次
+            if (!resolvFile.exists() || resolvFile.readText().trim() != configText.trim()) {
+                resolvFile.writeText(configText)
+            }
+        }.onFailure {
+            Logger.warning(TAG, "Failed to create resolv.conf", it)
+            FileUtils.deleteQuietly(resolvFile)
+        }
+        return resolvFile
+    }
+
+    private fun buildResolvConfSet(): Set<String> {
+        return buildSet {
+            getSystemDnsServerAddresses()
+                // JNDI DNS 的 nameserver 解析无法处理裸 IPv6 地址，仅保留 IPv4
+                ?.filterNot { it.contains(':') }
+                ?.let { addAll(it) }
+
+            // 按地区获取公共 DNS
+            if (LocaleList.getDefault().get(0).displayName != Locale.CHINA.displayName) {
+                add("1.1.1.1")
+                add("1.0.0.1")
+            } else {
+                add("223.5.5.5")
+                add("119.29.29.29")
+            }
+        }
+    }
+
+    /**
      * @param args 需要进行处理的参数
      * @param ramAllocation 指定内存空间大小
      */
     protected open fun progressFinalUserArgs(
         args: MutableList<String>,
-        ramAllocation: Int = AllSettings.ramAllocation.getValue()
+        ramAllocation: Int = AllSettings.ramAllocation.getOrMin()
     ) {
         args.purgeArg("-Xms")
         args.purgeArg("-Xmx")
@@ -220,9 +353,18 @@ abstract class Launcher(
         args.add("-Xms${ramAllocationString}M")
         args.add("-Xmx${ramAllocationString}M")
 
+        args.add("-Dorg.lwjgl.openal.libname=${PathManager.DIR_NATIVE_LIB}/libopenal.so")
+
         // Force LWJGL to use the Freetype library intended for it, instead of using the one
-        // that we ship with Java (since it may be older than what's needed)
-        args.add("-Dorg.lwjgl.freetype.libname=${PathManager.DIR_NATIVE_LIB}/libfreetype.so")
+        // that we ship with Java (since it may be older than what's needed).
+        // 始终指向 LWJGL 组件 natives 目录内的库，禁止回退到应用原生 libs 目录（其中不含 LWJGL 系库）
+        args.add("-Dorg.lwjgl.freetype.libname=${File(lwjglNativesDir, "libfreetype.so").absolutePath}")
+
+        // Our spirv-cross is compiled shared, so it gets named shared.
+        args.add("-Dorg.lwjgl.spvc.libname=spirv-cross-c-shared")
+
+        // We don't have jemalloc for our LWJGL so set the allocator to system to avoid error logs
+        args.add("-Dorg.lwjgl.system.allocator=system")
 
         // Some phones are not using the right number of cores, fix that
         args.add("-XX:ActiveProcessorCount=${java.lang.Runtime.getRuntime().availableProcessors()}")
@@ -232,55 +374,75 @@ abstract class Launcher(
         removeIf { arg: String -> arg.startsWith(argStart) }
     }
 
-    protected fun relocateLibPath() {
-        var jreArchitecture = runtime.arch
-        if (Architecture.archAsInt(jreArchitecture) == ARCH_X86) {
-            jreArchitecture = "i386/i486/i586"
-        }
+    protected fun getJavaLibDir(): String {
+        val architecture = runtime.arch?.let { arch ->
+            if (Architecture.archAsInt(arch) == ARCH_X86) "i386/i486/i586"
+            else arch
+        } ?: throw IOException("Unsupported runtime environment: ${runtime.name}, arch is null!")
 
-        for (arch in jreArchitecture.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()) {
-            val f = File(runtimeHome, "lib/$arch")
-            if (f.exists() && f.isDirectory) {
-                dirNameHomeJre = "lib/$arch"
+        var libDir = "/lib"
+        architecture.split("/").forEach { arch ->
+            val file = File(runtimeHome, "lib/$arch")
+            if (file.exists() && file.isDirectory()) {
+                libDir = "/lib/$arch"
             }
         }
-
-        val libName = if (is64BitsDevice) "lib64" else "lib"
-        val path = listOfNotNull(
-            FFmpegPluginManager.takeIf { it.isAvailable }?.libraryPath,
-            RendererPluginManager.selectedRendererPlugin?.path,
-            "$runtimeHome/$dirNameHomeJre/jli",
-            "$runtimeHome/$dirNameHomeJre",
-            if (checkJDK()) { "$runtimeHome/jre/$dirNameHomeJre" } else null,
-            "/system/$libName",
-            "/vendor/$libName",
-            "/vendor/$libName/hw",
-            LibPath.JNA.absolutePath,
-            PathManager.DIR_NATIVE_LIB
-        )
-        this.libraryPath = path.joinToString(":")
+        return libDir
     }
 
-    private fun initLdLibraryPath() {
-        val runtimeDir = File(getJavaHome())
-        val serverFile = runtimeDir.child(dirNameHomeJre, "server", "libjvm.so")
-        jvmLibraryPath = "${getJavaHome()}/$dirNameHomeJre/${if (serverFile.exists()) "server" else "client"}"
-        lDebug("Base libraryPath: $libraryPath")
-        lDebug("Internal libraryPath: $jvmLibraryPath:$libraryPath")
-        ZLBridge.setLdLibraryPath("$jvmLibraryPath:$libraryPath")
+    private fun getJvmLibDir(): String {
+        val jvmLibDir: String
+        val path = (if (RuntimesManager.isJDK8(runtimeHome)) "/jre" else "") + getJavaLibDir()
+        val jvmFile = File("$runtimeHome$path/server/libjvm.so")
+        jvmLibDir = if (jvmFile.exists()) "/server" else "/client"
+        return jvmLibDir
+    }
+
+    protected open fun getRuntimeLibraryPath(): String {
+        val javaLibDir = getJavaLibDir()
+        val jvmLibDir = getJvmLibDir()
+
+        val libName = if (is64BitsDevice) "lib64" else "lib"
+        val paths = buildList {
+            FFmpegPluginManager.takeIf { it.isAvailable }?.libraryPath?.let { add(it) }
+            RendererPluginManager.selectedRendererPlugin?.path?.let { add(it) }
+            addAll(NativePluginManager.getPaths())
+            add("$runtimeHome$javaLibDir/jli")
+            if (runtime.isJDK8) {
+                add("$runtimeHome/jre$javaLibDir$jvmLibDir:$runtimeHome/jre$javaLibDir")
+            } else {
+                add("$runtimeHome$javaLibDir$jvmLibDir")
+            }
+            add("/system/$libName")
+            add("/vendor/$libName")
+            add("/vendor/$libName/hw")
+            add("/system_ext/$libName")
+            add(LibPath.JNA.absolutePath)
+            PathManager.DIR_RUNTIME_MOD?.absolutePath?.let { add(it) }
+            add(lwjglNativesDir)
+            add(PathManager.DIR_NATIVE_LIB)
+        }
+        return paths.joinToString(":")
+    }
+
+    protected fun getLibraryPath(): String {
+        val libDirName = if (is64BitsDevice) "lib64" else "lib"
+        val path = listOfNotNull(
+            // per-version LWJGL natives 优先，避免 APK 内旧版 native 抢占
+            lwjglNativesDir,
+            "/system/$libDirName",
+            "/vendor/$libDirName",
+            "/vendor/$libDirName/hw",
+            "/system_ext/$libDirName",
+            RendererPluginManager.selectedRendererPlugin?.path,
+            PathManager.DIR_RUNTIME_MOD?.absolutePath,
+            PathManager.DIR_NATIVE_LIB
+        )
+        return path.joinToString(":")
     }
 
     protected fun findInLdLibPath(libName: String): String {
-        val path = Os.getenv("LD_LIBRARY_PATH") ?: run {
-            try {
-                if (libraryPath.isNotEmpty()) {
-                    Os.setenv("LD_LIBRARY_PATH", libraryPath, true)
-                }
-            } catch (e: ErrnoException) {
-                lError("Failed to locate lib path", e)
-            }
-            libraryPath
-        }
+        val path = getLibraryPath()
         return path.split(":").find { libPath ->
             val file = File(libPath, libName)
             file.exists() && file.isFile
@@ -300,73 +462,81 @@ abstract class Launcher(
         }
     }
 
-    private fun setEnv() {
-        val envMap = initEnv()
+    private fun setEnv(screenSize: IntSize) {
+        val envMap = runCatching {
+            initEnv(screenSize)
+        }.onFailure {
+            LoggerBridge.appendTitle("Init Env Failed")
+            LoggerBridge.append(it.stackTraceToString())
+        }.getOrThrow()
         envMap.forEach { (key, value) ->
-            LoggerBridge.append("Added env: $key = $value")
+            LoggerBridge.appendInfo("$key = $value")
             runCatching {
                 Os.setenv(key, value, true)
             }.onFailure {
-                lError("Unable to set environment variable.", it)
+                Logger.error(TAG, "Unable to set environment variable.", it)
             }
         }
     }
 
     @CallSuper
-    protected open fun initEnv(): MutableMap<String, String> {
+    protected open fun initEnv(screenSize: IntSize): MutableMap<String, String> {
         val envMap: MutableMap<String, String> = ArrayMap()
-        setJavaEnv(envMap = { envMap })
+        setJavaEnv(
+            screenSize = screenSize,
+            envMap = { envMap }
+        )
         return envMap
     }
 
-    private fun setJavaEnv(envMap: () -> MutableMap<String, String>) {
-        val path = listOfNotNull(
-            "$runtimeHome/bin",
-            if (checkJDK()) "$runtimeHome/jre/bin" else null,
-            Os.getenv("PATH")
-        )
+    private fun setJavaEnv(
+        screenSize: IntSize,
+        envMap: () -> MutableMap<String, String>
+    ) {
+        val path = listOfNotNull("$runtimeHome/bin", Os.getenv("PATH"))
 
         envMap().let { map ->
             map["POJAV_NATIVEDIR"] = PathManager.DIR_NATIVE_LIB
             map["JAVA_HOME"] = getJavaHome()
             map["HOME"] = PathManager.DIR_FILES_EXTERNAL.absolutePath
             map["TMPDIR"] = PathManager.DIR_CACHE.absolutePath
-            map["LD_LIBRARY_PATH"] = libraryPath
+            map["LD_LIBRARY_PATH"] = getLibraryPath()
             map["PATH"] = path.joinToString(":")
-            map["AWTSTUB_WIDTH"] = (CallbackBridge.windowWidth.takeIf { it > 0 } ?: CallbackBridge.physicalWidth).toString()
-            map["AWTSTUB_HEIGHT"] = (CallbackBridge.windowHeight.takeIf { it > 0 } ?: CallbackBridge.physicalHeight).toString()
+            map["AWTSTUB_WIDTH"] = screenSize.width.toString()
+            map["AWTSTUB_HEIGHT"] = screenSize.height.toString()
+            map["MOD_ANDROID_RUNTIME"] = PathManager.DIR_RUNTIME_MOD?.absolutePath ?: ""
+            map["DALVIK_JAVAVM"] = ZLBridge.getJavaVMPointer().toString()
+            map["DALVIK_APPLICATION"] = ZLBridge.jObjectToString(GlobalContext.applicationContext)
+            map["ALSOFT_DRIVERS"] = "opensl"
 
             if (AllSettings.dumpShaders.getValue()) map["LIBGL_VGPU_DUMP"] = "1"
             if (AllSettings.zinkPreferSystemDriver.getValue()) map["POJAV_ZINK_PREFER_SYSTEM_DRIVER"] = "1"
             if (AllSettings.vsyncInZink.getValue()) map["POJAV_VSYNC_IN_ZINK"] = "1"
-            if (AllSettings.bigCoreAffinity.getValue()) map["POJAV_BIG_CORE_AFFINITY"] = "1"
 
             if (FFmpegPluginManager.isAvailable) map["POJAV_FFMPEG_PATH"] = FFmpegPluginManager.executablePath!!
         }
     }
 
     private fun dlopenJavaRuntime() {
-        ZLBridge.dlopen(findInLdLibPath("libjli.so"))
-        if (!ZLBridge.dlopen("libjvm.so")) {
-            lWarning("Failed to load with no path, trying with full path")
-            ZLBridge.dlopen("$jvmLibraryPath/libjvm.so")
+        var javaLibDir = "$runtimeHome${getJavaLibDir()}"
+        val jliLibDir = if (File("$javaLibDir/jli/libjli.so").exists()) "$javaLibDir/jli" else javaLibDir
+
+        if (runtime.isJDK8) {
+            javaLibDir = "$runtimeHome/jre${getJavaLibDir()}"
         }
-        ZLBridge.dlopen(findInLdLibPath("libverify.so"))
-        ZLBridge.dlopen(findInLdLibPath("libjava.so"))
-        ZLBridge.dlopen(findInLdLibPath("libnet.so"))
-        ZLBridge.dlopen(findInLdLibPath("libnio.so"))
-        ZLBridge.dlopen(findInLdLibPath("libawt.so"))
-        ZLBridge.dlopen(findInLdLibPath("libawt_headless.so"))
-        ZLBridge.dlopen(findInLdLibPath("libfreetype.so"))
-        ZLBridge.dlopen(findInLdLibPath("libfontmanager.so"))
-        val runtimeDir = File(runtimeHome)
-        locateLibs(runtimeDir.child(dirNameHomeJre)).forEach { file ->
+        val jvmLibDir = "$javaLibDir${getJvmLibDir()}"
+        ZLBridge.dlopen("$jliLibDir/libjli.so")
+        ZLBridge.dlopen("$jvmLibDir/libjvm.so")
+        ZLBridge.dlopen("$javaLibDir/libfreetype.so")
+        ZLBridge.dlopen("$javaLibDir/libverify.so")
+        ZLBridge.dlopen("$javaLibDir/libjava.so")
+        ZLBridge.dlopen("$javaLibDir/libnet.so")
+        ZLBridge.dlopen("$javaLibDir/libnio.so")
+        ZLBridge.dlopen("$javaLibDir/libawt.so")
+        ZLBridge.dlopen("$javaLibDir/libawt_headless.so")
+        ZLBridge.dlopen("$javaLibDir/libfontmanager.so")
+        locateLibs(File(runtimeHome)).forEach { file ->
             ZLBridge.dlopen(file.absolutePath)
-        }
-        if (checkJDK()) {
-            locateLibs(runtimeDir.child("jre", dirNameHomeJre)).forEach { file ->
-                ZLBridge.dlopen(file.absolutePath)
-            }
         }
     }
 
@@ -376,65 +546,25 @@ abstract class Launcher(
     }
 }
 
-/**
- * [Modified from PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher/blob/98947f2/app_pojavlauncher/src/main/java/net/kdt/pojavlaunch/utils/JREUtils.java#L411-L456)
- */
-fun parseJavaArguments(args: String): List<String> {
-    val parsedArguments = mutableListOf<String>()
-    var cleanedArgs = args.trim().replace(" ", "")
-    val separators = listOf("-XX:-", "-XX:+", "-XX:", "--", "-D", "-X", "-javaagent:", "-verbose")
-
-    for (prefix in separators) {
-        while (true) {
-            val start = cleanedArgs.indexOf(prefix)
-            if (start == -1) break
-
-            val end = separators
-                .mapNotNull { sep ->
-                    val i = cleanedArgs.indexOf(sep, start + prefix.length)
-                    if (i != -1) i else null
-                }
-                .minOrNull() ?: cleanedArgs.length
-
-            val parsedSubstring = cleanedArgs.substring(start, end)
-            cleanedArgs = cleanedArgs.replace(parsedSubstring, "")
-
-            if (parsedSubstring.indexOf('=') == parsedSubstring.lastIndexOf('=')) {
-                val last = parsedArguments.lastOrNull()
-                if (last != null && (last.endsWith(',') || parsedSubstring.contains(','))) {
-                    parsedArguments[parsedArguments.lastIndex] = last + parsedSubstring
-                } else {
-                    parsedArguments.add(parsedSubstring)
-                }
-            } else {
-                lWarning("Removed improper arguments: $parsedSubstring")
-            }
-        }
-    }
-
-    return parsedArguments
-}
-
 fun getCacioJavaArgs(
-    screenWidth: Int,
-    screenHeight: Int,
+    screenSize: IntSize,
     isJava8: Boolean
 ): List<String> {
     val argsList: MutableList<String> = ArrayList()
 
     // Caciocavallo config AWT-enabled version
     argsList.add("-Djava.awt.headless=false")
-    argsList.add("-Dcacio.managed.screensize=" + (screenWidth * 0.8).toInt() + "x" + (screenHeight * 0.8).toInt())
+    argsList.add("-Dcacio.managed.screensize=${screenSize.width}x${screenSize.height}")
     argsList.add("-Dcacio.font.fontmanager=sun.awt.X11FontManager")
     argsList.add("-Dcacio.font.fontscaler=sun.font.FreetypeFontScaler")
-    argsList.add("-Dswing.defaultlaf=javax.swing.plaf.metal.MetalLookAndFeel")
+    argsList.add("-Dswing.defaultlaf=javax.swing.plaf.nimbus.NimbusLookAndFeel")
     if (isJava8) {
         argsList.add("-Dawt.toolkit=net.java.openjdk.cacio.ctc.CTCToolkit")
         argsList.add("-Djava.awt.graphicsenv=net.java.openjdk.cacio.ctc.CTCGraphicsEnvironment")
     } else {
         argsList.add("-Dawt.toolkit=com.github.caciocavallosilano.cacio.ctc.CTCToolkit")
         argsList.add("-Djava.awt.graphicsenv=com.github.caciocavallosilano.cacio.ctc.CTCGraphicsEnvironment")
-        argsList.add("-Djava.system.class.loader=com.github.caciocavallosilano.cacio.ctc.CTCPreloadClassLoader")
+        argsList.add("-javaagent:${LibPath.CACIO_17_AGENT.absolutePath}")
 
         argsList.add("--add-exports=java.desktop/java.awt=ALL-UNNAMED")
         argsList.add("--add-exports=java.desktop/java.awt.peer=ALL-UNNAMED")
@@ -466,4 +596,19 @@ fun getCacioJavaArgs(
     argsList.add(cacioClassPath.toString())
 
     return argsList
+}
+
+/**
+ * 获取设备 SoC 名称，在 API 31+ 读取系统属性 ro.soc.model，若失败则返回 Build.HARDWARE
+ */
+fun getSocName(): String {
+    return runCatching {
+        ProcessBuilder("getprop", "ro.soc.model")
+            .start()
+            .inputStream
+            .bufferedReader()
+            .use { reader ->
+                reader.readLine()
+            }
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: Build.HARDWARE
 }

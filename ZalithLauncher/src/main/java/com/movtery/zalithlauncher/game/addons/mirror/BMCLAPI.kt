@@ -1,7 +1,25 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.addons.mirror
 
 import com.movtery.zalithlauncher.setting.AllSettings
-import com.movtery.zalithlauncher.setting.enums.MirrorSourceType
+import com.movtery.zalithlauncher.utils.isChinaMainland
 
 private const val ROOT = "https://bmclapi2.bangbang93.com"
 
@@ -33,31 +51,29 @@ private val REPLACE_MIRROR_HOLDERS = mapOf(
     Pair("https://meta.fabricmc.net", BMCLAPI.BASE_URL.url + "/fabric-meta"),
     Pair("https://maven.fabricmc.net", BMCLAPI.MAVEN.url),
     Pair("https://authlib-injector.yushi.moe", BMCLAPI.BASE_URL.url + "/mirrors/authlib-injector"),
-    Pair("https://repo1.maven.org/maven2", "https://mirrors.cloud.tencent.com/nexus/repository/maven-public")
+    Pair("https://repo1.maven.org/maven2", "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"),
+    Pair("https://repo.maven.apache.org/maven2", "https://mirrors.cloud.tencent.com/nexus/repository/maven-public"),
+    Pair("https://hmcl-dev.github.io/metadata/cleanroom", "https://alist.8mi.tech/d/mirror/HMCL-Metadata/Auto/cleanroom")
 )
 
 /**
- * 替换为 BMCL API 镜像源链接，若如匹配的链接，则仅返回官方链接集合
+ * 替换为镜像源链接并按用户偏好排序；非中国大陆不注入任何镜像。
  */
-fun String.mapMirrorableUrls(): List<String> {
-    var isAssetsFile = false
+fun String.mapBMCLMirrorUrls(): List<String> {
+    if (!isChinaMainland()) return listOf(this)
 
-    val mirrorUrl = REPLACE_MIRROR_HOLDERS.entries.find { (key, mirror) ->
-        isAssetsFile = mirror == BMCLAPI.ASSETS.url
-        this.startsWith(key)
+    val mirrorUrl = REPLACE_MIRROR_HOLDERS.entries.firstOrNull { (origin, _) ->
+        this.startsWith(origin)
     }?.let { (origin, mirror) ->
-        this.replaceFirst(origin, mirror)
+        replaceFirst(origin, mirror)
     }
 
-    val type = if (!isAssetsFile) {
-        AllSettings.fileDownloadSource.getValue()
-    } else {
-        //资源文件数量过多，请求量大，应先尝试官方源，减轻 BMCL API 源压力
-        MirrorSourceType.OFFICIAL_FIRST
-    }
-
-    return when (type) {
-        MirrorSourceType.OFFICIAL_FIRST -> listOfNotNull(this, mirrorUrl)
-        MirrorSourceType.MIRROR_FIRST -> listOfNotNull(mirrorUrl, this)
-    }
+    return orderCandidates(
+        official = this,
+        mirror = mirrorUrl,
+        priority = resolveMirrorPriority(
+            source = AllSettings.gameDownloadSource.getValue(),
+            mainland = true
+        )
+    )
 }

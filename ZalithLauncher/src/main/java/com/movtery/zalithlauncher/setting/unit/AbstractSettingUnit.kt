@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.setting.unit
 
 import androidx.compose.runtime.getValue
@@ -16,7 +34,7 @@ abstract class AbstractSettingUnit<V>(
     /**
      * 保存设置值
      */
-    protected abstract fun saveValue(v: V)
+    protected abstract fun saveValue(v: V): V
 
     /**
      * 可观察的状态
@@ -25,21 +43,27 @@ abstract class AbstractSettingUnit<V>(
         protected set
 
     fun init() {
-        this.state = getValue()
+        getValue()
     }
 
     /**
-     * @return 存入值，并返回一个设置构建器
+     * 保存当前状态值
+     */
+    fun save() {
+        saveValue(this.state)
+    }
+
+    /**
+     * 存入值
      */
     fun save(value: V) {
-        this.state = value
-        return saveValue(value)
+        this.state = saveValue(value)
     }
 
     /**
-     * @return **仅更新状态**，不保存值
+     * **仅更新状态**，不保存值
      */
-    fun updateState(value: V) {
+    open fun updateState(value: V) {
         this.state = value
     }
 
@@ -47,7 +71,6 @@ abstract class AbstractSettingUnit<V>(
      * 重置当前设置单元为默认值
      */
     fun reset() {
-        this.state = defaultValue
-        saveValue(defaultValue)
+        this.state = saveValue(defaultValue)
     }
 }

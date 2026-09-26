@@ -13,9 +13,6 @@ static __thread osm_render_window_t* currentBundle;
 static char no_render_buffer[4];
 static bool hasSetNoRendererBuffer = false;
 
-// Its not in a .h file because it is not supposed to be used outsife of this file.
-void setNativeWindowSwapInterval(struct ANativeWindow* nativeWindow, int swapInterval);
-
 bool osm_init() {
     dlsym_OSMesa();
     return true; // no more specific initialization required
@@ -76,6 +73,10 @@ void osm_swap_surfaces(osm_render_window_t* bundle) {
 void osm_release_window() {
     currentBundle->newNativeSurface = NULL;
     osm_swap_surfaces(currentBundle);
+    // 清理过期状态，避免下次 swap 重复进入 osm_swap_surfaces 导致回退到空 framebuffer
+    if (currentBundle->nativeSurface != NULL && currentBundle->state == STATE_RENDERER_NEW_WINDOW) {
+        currentBundle->state = STATE_RENDERER_ALIVE;
+    }
 }
 
 void osm_apply_current_ll() {

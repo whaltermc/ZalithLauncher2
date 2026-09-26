@@ -1,6 +1,25 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.assets.platform.curseforge.models
 
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.game.download.assets.platform.PlatformClasses
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformFilterCode
 
 /**
@@ -97,6 +116,10 @@ enum class CurseForgeModCategory : CurseForgeCategory, PlatformFilterCode {
         override fun describe(): String = "423"
         override fun getDisplayName(): Int = R.string.download_assets_category_information
     },
+    PERFORMANCE {
+        override fun describe(): String = "6814"
+        override fun getDisplayName(): Int = R.string.download_assets_category_optimization
+    },
     SOCIAL {
         override fun describe(): String = "435"
         override fun getDisplayName(): Int = R.string.download_assets_category_social
@@ -108,6 +131,10 @@ enum class CurseForgeModCategory : CurseForgeCategory, PlatformFilterCode {
     LIBRARY {
         override fun describe(): String = "421"
         override fun getDisplayName(): Int = R.string.download_assets_category_library
+    },
+    MISCELLANEOUS {
+        override fun describe(): String = "6947"
+        override fun getDisplayName(): Int = R.string.download_assets_category_miscellaneous
     };
 
     override fun index(): Int = this.ordinal
@@ -299,4 +326,15 @@ enum class CurseForgeShadersCategory : CurseForgeCategory, PlatformFilterCode {
     };
 
     override fun index(): Int = this.ordinal
+}
+
+fun String.mapCurseForgeCategory(classes: PlatformClasses): PlatformFilterCode? {
+    val mapValues = when (classes) {
+        PlatformClasses.MOD -> CurseForgeModCategory.entries
+        PlatformClasses.MOD_PACK -> CurseForgeModpackCategory.entries
+        PlatformClasses.RESOURCE_PACK -> CurseForgeResourcePackCategory.entries
+        PlatformClasses.SAVES -> CurseForgeSavesCategory.entries
+        PlatformClasses.SHADERS -> CurseForgeShadersCategory.entries
+    }
+    return mapValues.find { it.describe() == this }
 }

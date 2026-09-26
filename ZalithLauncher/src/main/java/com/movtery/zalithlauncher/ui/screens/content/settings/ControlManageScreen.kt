@@ -1,9 +1,29 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.settings
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,32 +34,30 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.AddBox
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.nonInteractiveScrollbar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,20 +72,23 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation3.runtime.NavKey
 import com.movtery.layer_controller.data.lang.createTranslatable
 import com.movtery.layer_controller.layout.ControlLayout
 import com.movtery.layer_controller.layout.EmptyControlLayout
 import com.movtery.layer_controller.layout.EmptyLayoutInfo
+import com.movtery.layer_controller.observable.ObservableControlLayout
 import com.movtery.layer_controller.observable.ObservableTranslatableString
 import com.movtery.layer_controller.utils.AUTHOR_NAME_LENGTH
 import com.movtery.layer_controller.utils.NAME_LENGTH
@@ -75,35 +96,47 @@ import com.movtery.layer_controller.utils.VERSION_NAME_LENGTH
 import com.movtery.layer_controller.utils.newRandomFileName
 import com.movtery.layer_controller.utils.saveToFile
 import com.movtery.zalithlauncher.R
-import com.movtery.zalithlauncher.coroutine.Task
-import com.movtery.zalithlauncher.coroutine.TaskSystem
 import com.movtery.zalithlauncher.game.control.ControlData
 import com.movtery.zalithlauncher.game.control.ControlManager
 import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.setting.AllSettings
 import com.movtery.zalithlauncher.ui.activities.startEditorActivity
+import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.ui.base.BaseScreen
 import com.movtery.zalithlauncher.ui.components.AnimatedRow
+import com.movtery.zalithlauncher.ui.components.BackgroundCard
+import com.movtery.zalithlauncher.ui.components.CardTitleLayout
+import com.movtery.zalithlauncher.ui.components.EdgeDirection
 import com.movtery.zalithlauncher.ui.components.IconTextButton
 import com.movtery.zalithlauncher.ui.components.MarqueeText
+import com.movtery.zalithlauncher.ui.components.OwnOutlinedTextField
 import com.movtery.zalithlauncher.ui.components.ScalingActionButton
 import com.movtery.zalithlauncher.ui.components.ScalingLabel
 import com.movtery.zalithlauncher.ui.components.SimpleAlertDialog
 import com.movtery.zalithlauncher.ui.components.SimpleEditDialog
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
-import com.movtery.zalithlauncher.ui.components.rememberAutoScrollToEndState
+import com.movtery.zalithlauncher.ui.components.SingleLineTextCheck
+import com.movtery.zalithlauncher.ui.components.fadeEdge
+import com.movtery.zalithlauncher.ui.components.rememberDialogMaxHeight
+import com.movtery.zalithlauncher.ui.components.verticalScrollWithBar
 import com.movtery.zalithlauncher.ui.screens.NestedNavKey
 import com.movtery.zalithlauncher.ui.screens.NormalNavKey
-import com.movtery.zalithlauncher.ui.screens.content.elements.ImportFileButton
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
+import com.movtery.zalithlauncher.ui.screens.content.elements.ImportMultipleFileButton
 import com.movtery.zalithlauncher.ui.screens.main.control_editor.edit_translatable.EditTranslatableTextDialog
+import com.movtery.zalithlauncher.ui.theme.cardColor
+import com.movtery.zalithlauncher.ui.theme.itemColor
+import com.movtery.zalithlauncher.ui.theme.onCardColor
+import com.movtery.zalithlauncher.ui.theme.onItemColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 import com.movtery.zalithlauncher.utils.file.shareFile
 import com.movtery.zalithlauncher.utils.string.getMessageOrToString
 import com.movtery.zalithlauncher.utils.string.isEmptyOrBlank
 import com.movtery.zalithlauncher.viewmodel.ErrorViewModel
+import com.movtery.zalithlauncher.viewmodel.EventViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.apache.commons.io.FileUtils
 import java.io.File
 import java.util.Locale
@@ -139,6 +172,24 @@ private class ControlViewModel : ViewModel() {
         submitError: (Exception) -> Unit
     ) {
         viewModelScope.launch {
+            saveToNew(layout, submitError)
+        }
+    }
+
+    fun copyNew(
+        layout: ObservableControlLayout,
+        submitError: (Exception) -> Unit
+    ) {
+        viewModelScope.launch {
+            saveToNew(layout.pack(), submitError)
+        }
+    }
+
+    private suspend fun saveToNew(
+        layout: ControlLayout,
+        submitError: (Exception) -> Unit
+    ) {
+        withContext(Dispatchers.IO) {
             val file = File(PathManager.DIR_CONTROL_LAYOUTS, "${newRandomFileName()}.json")
             try {
                 layout.saveToFile(file)
@@ -165,12 +216,13 @@ private fun rememberControlViewModel() = viewModel(
 @Composable
 fun ControlManageScreen(
     key: NestedNavKey.Settings,
-    settingsScreenKey: NavKey?,
-    mainScreenKey: NavKey?,
+    settingsScreenKey: TitledNavKey?,
+    mainScreenKey: TitledNavKey?,
+    eventViewModel: EventViewModel,
     submitError: (ErrorViewModel.ThrowableMessage) -> Unit
 ) {
     val viewModel = rememberControlViewModel()
-    val dataList by ControlManager.dataList.collectAsState()
+    val dataList by ControlManager.dataList.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val configuration = LocalConfiguration.current
@@ -190,8 +242,8 @@ fun ControlManageScreen(
             viewModel.createNew(layout) { e ->
                 submitError(
                     ErrorViewModel.ThrowableMessage(
-                        title = context.getString(R.string.control_manage_failed_to_save),
-                        message = e.getMessageOrToString()
+                        title = androidText(R.string.control_manage_failed_to_save),
+                        message = androidText(e.getMessageOrToString())
                     )
                 )
             }
@@ -202,8 +254,8 @@ fun ControlManageScreen(
         onSave = { data ->
             ControlManager.saveControl(data) { e ->
                 ErrorViewModel.ThrowableMessage(
-                    title = context.getString(R.string.control_manage_failed_to_save),
-                    message = e.getMessageOrToString()
+                    title = androidText(R.string.control_manage_failed_to_save),
+                    message = androidText(e.getMessageOrToString())
                 )
             }
         }
@@ -213,6 +265,9 @@ fun ControlManageScreen(
         Triple(key, mainScreenKey, false),
         Triple(NormalNavKey.Settings.ControlManager, settingsScreenKey, false)
     ) { isVisible ->
+        val selectedLayout by ControlManager.selectedLayout.collectAsStateWithLifecycle()
+        val isRefreshing by ControlManager.isRefreshing.collectAsStateWithLifecycle()
+
         AnimatedRow(
             modifier = Modifier
                 .fillMaxSize()
@@ -226,17 +281,27 @@ fun ControlManageScreen(
                         .offset { IntOffset(x = xOffset.roundToPx(), y = 0) },
                     dataList = dataList,
                     locale = locale,
-                    isLoading = ControlManager.isRefreshing,
+                    isLoading = isRefreshing,
                     onRefresh = {
                         ControlManager.refresh()
                     },
                     onCreate = {
                         viewModel.operation = ControlOperation.CreateNew
                     },
+                    onCopy = { data ->
+                        viewModel.copyNew(data.controlLayout) { e ->
+                            submitError(
+                                ErrorViewModel.ThrowableMessage(
+                                    title = androidText(R.string.control_manage_failed_to_save),
+                                    message = androidText(e.getMessageOrToString())
+                                )
+                            )
+                        }
+                    },
                     onDelete = { data ->
                         viewModel.operation = ControlOperation.Delete(data)
                     },
-                    submitError = submitError
+                    eventViewModel = eventViewModel,
                 )
             }
 
@@ -245,8 +310,8 @@ fun ControlManageScreen(
                     modifier = Modifier
                         .weight(0.5f)
                         .offset { IntOffset(x = xOffset.roundToPx(), y = 0) },
-                    isLoading = ControlManager.isRefreshing,
-                    data = ControlManager.selectedLayout,
+                    isLoading = isRefreshing,
+                    data = selectedLayout,
                     locale = locale,
                     onShareLayout = { data ->
                         shareFile(context, data.file)
@@ -324,7 +389,6 @@ private fun ControlOperation(
                     changeOperation(ControlOperation.None)
                 },
                 allowEmpty = operation.type.allowEmpty,
-                dismissText = stringResource(R.string.generic_close),
                 closeText = stringResource(R.string.generic_save),
                 take = operation.type.length
             )
@@ -343,7 +407,6 @@ private fun ControlOperation(
                     onSave(operation.data)
                     changeOperation(ControlOperation.None)
                 },
-                dismissText = stringResource(R.string.generic_close),
                 closeText = stringResource(R.string.generic_save)
             )
         }
@@ -375,6 +438,7 @@ private fun ControlOperation(
 /**
  * 左侧：控制布局展示列表
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ControlLayoutList(
     modifier: Modifier = Modifier,
@@ -383,10 +447,11 @@ private fun ControlLayoutList(
     isLoading: Boolean,
     onRefresh: () -> Unit,
     onCreate: () -> Unit,
+    onCopy: (ControlData) -> Unit,
     onDelete: (ControlData) -> Unit,
-    submitError: (ErrorViewModel.ThrowableMessage) -> Unit
+    eventViewModel: EventViewModel,
 ) {
-    Card(
+    BackgroundCard(
         modifier = modifier.fillMaxHeight(),
         shape = MaterialTheme.shapes.extraLarge
     ) {
@@ -395,29 +460,28 @@ private fun ControlLayoutList(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                LoadingIndicator()
             }
         } else {
             ControlListHeader(
                 modifier = Modifier.fillMaxWidth(),
                 onRefresh = onRefresh,
                 onCreate = onCreate,
-                submitError = submitError
-            )
-
-            HorizontalDivider(
-                modifier = Modifier
-                    .padding(horizontal = 12.dp)
-                    .fillMaxWidth(),
-                color = MaterialTheme.colorScheme.onSurface
+                eventViewModel = eventViewModel,
             )
 
             if (dataList.isNotEmpty()) {
+                val scrollState = rememberLazyListState()
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        .weight(1f)
+                        .nonInteractiveScrollbar(
+                            state = scrollState.scrollIndicatorState!!,
+                            orientation = Orientation.Vertical,
+                        ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    state = scrollState,
                 ) {
                     items(dataList) { data ->
                         ControlLayoutItem(
@@ -428,6 +492,7 @@ private fun ControlLayoutList(
                             locale = locale,
                             selected = data.file.name == AllSettings.controlLayout.state,
                             onSelected = { ControlManager.selectControl(data) },
+                            onCopy = { onCopy(data) },
                             onDelete = { onDelete(data) }
                         )
                     }
@@ -452,72 +517,45 @@ private fun ControlListHeader(
     modifier: Modifier = Modifier,
     onRefresh: () -> Unit,
     onCreate: () -> Unit,
-    submitError: (ErrorViewModel.ThrowableMessage) -> Unit
+    eventViewModel: EventViewModel,
 ) {
-    val context = LocalContext.current
+    CardTitleLayout {
+        val scrollState = rememberScrollState()
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(state = rememberAutoScrollToEndState())
-            .padding(PaddingValues(horizontal = 16.dp, vertical = 8.dp)),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconTextButton(
-            onClick = onRefresh,
-            imageVector = Icons.Filled.Refresh,
-            contentDescription = stringResource(R.string.generic_refresh),
-            text = stringResource(R.string.generic_refresh),
-        )
-        ImportFileButton(
-            extension = "json",
-            progressUris = { uris ->
-                fun showError(
-                    title: String = context.getString(R.string.control_manage_import_failed),
-                    message: String
-                ) {
-                    submitError(
-                        ErrorViewModel.ThrowableMessage(
-                            title = title,
-                            message = message
-                        )
-                    )
-                }
-                TaskSystem.submitTask(
-                    Task.runTask(
-                        dispatcher = Dispatchers.IO,
-                        task = { task ->
-                            uris.forEach { uri ->
-                                val inputStream = context.contentResolver.openInputStream(uri) ?: run {
-                                    showError(message = context.getString(R.string.multirt_runtime_import_failed_input_stream))
-                                    return@forEach
-                                }
-                                ControlManager.importControl(
-                                    inputStream = inputStream,
-                                    onSerializationError = {
-                                        showError(
-                                            message = context.getString(R.string.control_manage_import_failed_to_parse) + "\n" +
-                                                    it.getMessageOrToString()
-                                        )
-                                    },
-                                    catchedError =  {
-                                        showError(message = it.getMessageOrToString())
-                                    }
-                                )
-                            }
-                            ControlManager.refresh()
-                        }
-                    )
+        Row(
+            modifier = Modifier
+                .fadeEdge(
+                    state = scrollState,
+                    length = 32.dp,
+                    direction = EdgeDirection.Horizontal
                 )
-            }
-        )
-        IconTextButton(
-            onClick = onCreate,
-            imageVector = Icons.Outlined.AddBox,
-            contentDescription = stringResource(R.string.control_manage_create_new),
-            text = stringResource(R.string.control_manage_create_new),
-        )
+                .then(
+                    modifier
+                        .horizontalScroll(state = scrollState)
+                        .padding(all = 8.dp)
+                ),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconTextButton(
+                onClick = onRefresh,
+                painter = painterResource(R.drawable.ic_refresh),
+                contentDescription = stringResource(R.string.generic_refresh),
+                text = stringResource(R.string.generic_refresh),
+            )
+            ImportMultipleFileButton(
+                extension = "json",
+                progressUris = { uris ->
+                    eventViewModel.sendEvent(EventViewModel.Event.ImportControls(uris))
+                }
+            )
+            IconTextButton(
+                onClick = onCreate,
+                painter = painterResource(R.drawable.ic_add_box_outlined),
+                contentDescription = stringResource(R.string.control_manage_create_new),
+                text = stringResource(R.string.control_manage_create_new),
+            )
+        }
     }
 }
 
@@ -531,9 +569,10 @@ private fun ControlLayoutItem(
     locale: Locale,
     selected: Boolean,
     onSelected: () -> Unit,
+    onCopy: () -> Unit,
     onDelete: () -> Unit,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    color: Color = itemColor(),
+    contentColor: Color = onItemColor(),
 ) {
     val scale = remember { Animatable(initialValue = 0.95f) }
     LaunchedEffect(Unit) {
@@ -544,7 +583,6 @@ private fun ControlLayoutItem(
         color = color,
         contentColor = contentColor,
         shape = MaterialTheme.shapes.large,
-        shadowElevation = 1.dp,
         onClick = {
             if (selected) return@Surface
             onSelected()
@@ -596,11 +634,21 @@ private fun ControlLayoutItem(
                     )
                 }
             }
+            //复制
+            IconButton(
+                onClick = onCopy
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_copy_all_outlined),
+                    contentDescription = stringResource(R.string.generic_copy)
+                )
+            }
+            //删除
             IconButton(
                 onClick = onDelete
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Delete,
+                    painter = painterResource(R.drawable.ic_delete_outlined),
                     contentDescription = stringResource(R.string.generic_delete)
                 )
             }
@@ -611,6 +659,7 @@ private fun ControlLayoutItem(
 /**
  * 右侧：控制布局详细信息
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ControlLayoutInfo(
     modifier: Modifier = Modifier,
@@ -623,7 +672,7 @@ private fun ControlLayoutInfo(
     onEditDescription: (ControlData) -> Unit,
     onEditVersion: (ControlData) -> Unit
 ) {
-    Card(
+    BackgroundCard(
         modifier = modifier.fillMaxHeight(),
         shape = MaterialTheme.shapes.extraLarge
     ) {
@@ -632,7 +681,7 @@ private fun ControlLayoutInfo(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                LoadingIndicator()
             }
         } else if (data == null) {
             Box(
@@ -721,8 +770,7 @@ private fun ControlLayoutInfo(
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 HorizontalDivider(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                                 Text(
                                     text = description,
@@ -771,14 +819,14 @@ private fun ControlInfoItem(
     title: String,
     value: String,
     onEdit: () -> Unit,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    color: Color = itemColor(),
+    contentColor: Color = onItemColor(),
 ) {
     ControlInfoItem(
         modifier = modifier,
         onEdit = onEdit,
         color = color,
-        contentColor = contentColor
+        contentColor = contentColor,
     ) {
         Text(
             text = title,
@@ -797,8 +845,8 @@ private fun ControlInfoItem(
 private fun ControlInfoItem(
     modifier: Modifier = Modifier,
     onEdit: () -> Unit,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    color: Color = itemColor(),
+    contentColor: Color = onItemColor(),
     content: @Composable RowScope.() -> Unit
 ) {
     Surface(
@@ -806,7 +854,6 @@ private fun ControlInfoItem(
         color = color,
         contentColor = contentColor,
         shape = MaterialTheme.shapes.large,
-        shadowElevation = 1.dp,
         onClick = onEdit
     ) {
         Row(
@@ -868,13 +915,20 @@ private fun CreateNewLayoutDialog(
     Dialog(
         onDismissRequest = onDismissRequest
     ) {
-        Box(
-            modifier = Modifier.fillMaxHeight(),
+        BoxWithConstraints(
+            modifier = Modifier
+                .heightIn(max = rememberDialogMaxHeight())
+                .fillMaxHeight(),
             contentAlignment = Alignment.Center
         ) {
             Surface(
-                modifier = Modifier.padding(all = 6.dp),
+                modifier = Modifier
+                    .padding(all = 6.dp)
+                    .heightIn(max = (maxHeight - 12.dp).coerceAtMost(rememberDialogMaxHeight()))
+                    .wrapContentHeight(),
                 shape = MaterialTheme.shapes.extraLarge,
+                color = cardColor(false),
+                contentColor = onCardColor(),
                 shadowElevation = 6.dp
             ) {
                 Column(
@@ -887,10 +941,12 @@ private fun CreateNewLayoutDialog(
                         style = MaterialTheme.typography.titleMedium
                     )
 
+                    val scrollState = rememberScrollState()
                     Column(
                         modifier = Modifier
+                            .fadeEdge(state = scrollState)
                             .weight(1f, fill = false)
-                            .verticalScroll(rememberScrollState())
+                            .verticalScrollWithBar(state = scrollState)
                             .fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -898,11 +954,18 @@ private fun CreateNewLayoutDialog(
                         val authorFocus = remember { FocusRequester() }
                         val versionNameFocus = remember { FocusRequester() }
 
+                        SingleLineTextCheck(
+                            text = name,
+                            onSingleLined = { name = it }
+                        )
+
                         //名称
-                        OutlinedTextField(
+                        OwnOutlinedTextField(
                             modifier = Modifier.fillMaxWidth(),
                             value = name,
-                            onValueChange = { name = it },
+                            onValueChange = {
+                                name = it
+                            },
                             label = {
                                 Text(text = stringResource(R.string.control_manage_create_new_name))
                             },
@@ -924,13 +987,20 @@ private fun CreateNewLayoutDialog(
                             shape = MaterialTheme.shapes.large
                         )
 
+                        SingleLineTextCheck(
+                            text = author,
+                            onSingleLined = { author = it }
+                        )
+
                         //作者
-                        OutlinedTextField(
+                        OwnOutlinedTextField(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(authorFocus),
                             value = author,
-                            onValueChange = { author = it },
+                            onValueChange = {
+                                author = it
+                            },
                             label = {
                                 Text(text = stringResource(R.string.control_manage_create_new_author))
                             },
@@ -952,13 +1022,20 @@ private fun CreateNewLayoutDialog(
                             shape = MaterialTheme.shapes.large
                         )
 
+                        SingleLineTextCheck(
+                            text = versionName,
+                            onSingleLined = { versionName = it }
+                        )
+
                         //版本
-                        OutlinedTextField(
+                        OwnOutlinedTextField(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(versionNameFocus),
                             value = versionName,
-                            onValueChange = { versionName = it },
+                            onValueChange = {
+                                versionName = it
+                            },
                             label = {
                                 Text(text = stringResource(R.string.control_manage_create_new_version_name))
                             },
@@ -985,7 +1062,7 @@ private fun CreateNewLayoutDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        Button(
+                        FilledTonalButton(
                             modifier = Modifier.weight(1f),
                             onClick = onDismissRequest
                         ) {
@@ -1006,4 +1083,13 @@ private fun CreateNewLayoutDialog(
             }
         }
     }
+}
+
+@Composable
+@Preview(showBackground = true)
+private fun PreviewCreateNewLayoutDialog() {
+    CreateNewLayoutDialog(
+        onDismissRequest = {},
+        onCreate = { _, _, _ -> }
+    )
 }

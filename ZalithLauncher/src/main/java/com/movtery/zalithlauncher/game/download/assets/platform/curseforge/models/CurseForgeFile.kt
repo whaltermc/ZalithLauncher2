@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.assets.platform.curseforge.models
 
 import com.movtery.zalithlauncher.game.download.assets.platform.Platform
@@ -6,9 +24,10 @@ import com.movtery.zalithlauncher.game.download.assets.platform.PlatformDisplayL
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformReleaseType
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformVersion
 import com.movtery.zalithlauncher.game.download.assets.platform.curseforge.models.CurseForgeFile.Hash
-import com.movtery.zalithlauncher.game.download.assets.platform.getVersionFromCurseForge
-import com.movtery.zalithlauncher.game.versioninfo.RELEASE_REGEX
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.game.download.assets.platform.mirroredCurseForgeSource
+import com.movtery.zalithlauncher.game.download.assets.platform.mirroredPlatformSearcher
+import com.movtery.zalithlauncher.game.versioninfo.filterRelease
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.string.parseInstant
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
@@ -224,19 +243,23 @@ class CurseForgeFile(
             ?: run {
                 val fileId = id.toString()
                 runCatching {
-                    getVersionFromCurseForge(
-                        projectID = currentProjectId,
-                        fileID = fileId
-                    ).data
+                    mirroredPlatformSearcher(
+                        searchers = mirroredCurseForgeSource()
+                    ) { searcher ->
+                        searcher.getVersion(
+                            projectID = currentProjectId,
+                            fileID = fileId
+                        )
+                    }.data
                 }.onFailure { e ->
                     when (e) {
-                        is FileNotFoundException -> lWarning("Could not query api.curseforge.com for deleted mods: $currentProjectId, $fileId", e)
-                        is IOException, is SerializationException -> lWarning("Unable to fetch the file name projectID=$currentProjectId, fileID=$fileId", e)
+                        is FileNotFoundException -> Logger.warning("InitCFFile", "Could not query api.curseforge.com for deleted mods: $currentProjectId, $fileId", e)
+                        is IOException, is SerializationException -> Logger.warning("InitCFFile", "Unable to fetch the file name projectID=$currentProjectId, fileID=$fileId", e)
                     }
                 }.getOrNull() ?: return false
             }
         val link = file.fixedFileUrl() ?: run {
-            lWarning("No download link available, projectID=$currentProjectId, fileID=${file.id}")
+            Logger.warning("InitCFFile", "No download link available, projectID=$currentProjectId, fileID=${file.id}")
             return false
         }
 
@@ -249,13 +272,15 @@ class CurseForgeFile(
 
     override fun platformId(): String = id.toString()
 
+    override fun platformProjectId(): String = modId.toString()
+
     override fun platformDisplayName(): String = thisPrimaryFile.displayName
 
     override fun platformFileName(): String = thisPrimaryFile.fileName!!
 
     override fun platformGameVersion(): Array<String> {
         return thisPrimaryFile.gameVersions.filter { gameVersion ->
-            RELEASE_REGEX.matcher(gameVersion).find()
+            filterRelease(gameVersion)
         }.toTypedArray()
     }
 

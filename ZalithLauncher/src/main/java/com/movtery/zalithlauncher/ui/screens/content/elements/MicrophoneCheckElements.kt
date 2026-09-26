@@ -1,22 +1,41 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.elements
 
 import android.Manifest
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,8 +59,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.ui.AndroidStringText
+import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.ui.components.MarqueeText
-import com.movtery.zalithlauncher.ui.components.itemLayoutColorOnSurface
+import com.movtery.zalithlauncher.ui.components.rememberDialogMaxHeight
+import com.movtery.zalithlauncher.ui.theme.cardColor
+import com.movtery.zalithlauncher.ui.theme.itemColor
+import com.movtery.zalithlauncher.ui.theme.onCardColor
 import com.movtery.zalithlauncher.utils.microphone.MicMeter
 
 sealed interface MicrophoneCheckState {
@@ -53,13 +77,16 @@ sealed interface MicrophoneCheckState {
 fun MicrophoneCheckOperation(
     state: MicrophoneCheckState,
     changeState: (MicrophoneCheckState) -> Unit,
-    dialogTitle: String = stringResource(R.string.microphone_check_title)
+    onShowToast: (AndroidStringText) -> Unit,
 ) {
     when (state) {
         is MicrophoneCheckState.None -> {}
         is MicrophoneCheckState.Start -> {
             MicrophoneCheckDialog(
-                title = dialogTitle,
+                title = stringResource(R.string.microphone_check_title),
+                noPermissions = {
+                    onShowToast(androidText(R.string.microphone_check_no_permissions))
+                },
                 onDismissRequest = {
                     changeState(MicrophoneCheckState.None)
                 }
@@ -71,7 +98,7 @@ fun MicrophoneCheckOperation(
 @Composable
 fun MicrophoneCheckDialog(
     title: String = stringResource(R.string.microphone_check_title),
-    noPermissionsText: String = stringResource(R.string.microphone_check_no_permissions),
+    noPermissions: () -> Unit,
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
@@ -94,7 +121,7 @@ fun MicrophoneCheckDialog(
             } else {
                 //用户拒绝授权，停止麦克风测试
                 micMeter.stop()
-                Toast.makeText(context, noPermissionsText, Toast.LENGTH_SHORT).show()
+                noPermissions()
                 onDismissRequest()
             }
         }
@@ -120,13 +147,20 @@ fun MicrophoneCheckDialog(
             onDispose { micMeter.stop() }
         }
 
-        Box(
-            modifier = Modifier.fillMaxHeight(),
+        BoxWithConstraints(
+            modifier = Modifier
+                .heightIn(max = rememberDialogMaxHeight())
+                .fillMaxHeight(),
             contentAlignment = Alignment.Center
         ) {
             Surface(
-                modifier = Modifier.padding(all = 6.dp),
+                modifier = Modifier
+                    .padding(all = 6.dp)
+                    .heightIn(max = (maxHeight - 12.dp).coerceAtMost(rememberDialogMaxHeight()))
+                    .wrapContentHeight(),
                 shape = MaterialTheme.shapes.extraLarge,
+                color = cardColor(false),
+                contentColor = onCardColor(),
                 shadowElevation = 6.dp
             ) {
                 Column(
@@ -136,11 +170,6 @@ fun MicrophoneCheckDialog(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.size(16.dp))
 
@@ -173,7 +202,7 @@ fun VoiceDbShower(
     modifier: Modifier = Modifier,
     height: Dp = 24.dp,
     shape: Shape = RoundedCornerShape(50.dp),
-    backgroundColor: Color = itemLayoutColorOnSurface()
+    backgroundColor: Color = itemColor()
 ) {
     val normalizedDb = level.coerceIn(0.0, 100.0) //0~100db
     val progress by animateFloatAsState((normalizedDb / 100.0f).toFloat())

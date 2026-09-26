@@ -1,18 +1,37 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.launch
 
 import android.content.Context
 import android.os.Build
 import android.os.FileObserver
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.movtery.zalithlauncher.context.copyAssetFile
 import com.movtery.zalithlauncher.game.version.installed.Version
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.string.splitPreservingQuotes
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+
+private const val TAG = "MCOptions"
 
 object MCOptions {
     private val lock = Any()
@@ -20,11 +39,9 @@ object MCOptions {
     private var fileObserver: FileObserver? = null
     private lateinit var version: Version
 
-    /**
-     * options.txt 文件刷新
-     */
-    var refreshKey by mutableStateOf(false)
-        private set
+    private val _refreshKey = MutableStateFlow(false)
+    /** options.txt 文件刷新 */
+    val refreshKey = _refreshKey.asStateFlow()
 
     /**
      * 初始化 Minecraft 选项配置
@@ -34,16 +51,15 @@ object MCOptions {
         synchronized(lock) {
             parameterMap.clear()
             fileObserver?.stopWatching()
-            setupFileStructure(context)
+
+            val optionsFile = getOptionsFile()
+            optionsFile.parentFile?.takeIf { !it.exists() }?.mkdirs()
+            if (!optionsFile.exists()) {
+                optionsFile.createWithDefaults(context)
+            }
+
             loadInternal()
             setupFileObserver()
-        }
-    }
-
-    private fun setupFileStructure(context: Context) {
-        getOptionsFile().apply {
-            parentFile?.takeIf { !it.exists() }?.mkdirs()
-            if (!exists()) createWithDefaults(context)
         }
     }
 
@@ -55,7 +71,7 @@ object MCOptions {
                 false
             )
         }.onFailure {
-            lWarning("Failed to unpack options.txt!", it)
+            Logger.warning(TAG, "Failed to unpack options.txt!", it)
         }
     }
 
@@ -65,16 +81,16 @@ object MCOptions {
             val newMap = optionsFile.readLines()
                 .mapNotNull { line ->
                     line.indexOf(':').takeIf { it > 0 }?.let { idx ->
-                        line.substring(0, idx) to line.substring(idx + 1)
+                        line.take(idx) to line.substring(idx + 1)
                     }
                 }.toMap()
 
             parameterMap.clear()
             parameterMap.putAll(newMap)
 
-            refreshKey = !refreshKey
+            _refreshKey.update { it.not() }
         }.onFailure {
-            lWarning("Failed to load options!", it)
+            Logger.warning(TAG, "Failed to load options!", it)
         }
     }
 
@@ -123,7 +139,7 @@ object MCOptions {
             )
             tempFile.renameTo(targetFile)
         }.onFailure {
-            lError("Failed to save options.txt!", it)
+            Logger.error(TAG, "Failed to save options.txt!", it)
             tempFile.delete()
         }
     }

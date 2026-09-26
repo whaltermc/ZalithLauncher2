@@ -1,10 +1,31 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.main.control_editor
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,44 +33,51 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowRight
-import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SingleChoiceSegmentedButtonRowScope
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import com.movtery.colorpicker.components.TransparentChecker
+import com.movtery.colorpicker.rememberColorPickerController
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.ui.components.ColorPickerDialog
+import com.movtery.zalithlauncher.ui.components.DefaultSwitch
 import com.movtery.zalithlauncher.ui.components.LittleTextLabel
 import com.movtery.zalithlauncher.ui.components.MarqueeText
 import com.movtery.zalithlauncher.ui.components.SimpleTextSlider
 import com.movtery.zalithlauncher.ui.components.SliderValueEditDialog
-import com.movtery.zalithlauncher.ui.components.itemLayoutColorOnSurface
+import com.movtery.zalithlauncher.ui.screens.content.elements.DisabledAlpha
+import com.movtery.zalithlauncher.ui.theme.itemColor
+import com.movtery.zalithlauncher.ui.theme.onItemColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 
 
@@ -65,14 +93,16 @@ fun InfoLayoutSliderItem(
     suffix: String? = null,
     fineTuningControl: Boolean = true,
     fineTuningStep: Float = 0.5f,
-    color: Color = itemLayoutColorOnSurface(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    enabled: Boolean = true,
+    color: Color = itemColor(false),
+    contentColor: Color = onItemColor(),
 ) {
     var showValueEditDialog by remember { mutableStateOf(false) }
 
     InfoLayoutItem(
         modifier = modifier,
         onClick = {},
+        enabled = enabled,
         color = color,
         contentColor = contentColor
     ) {
@@ -86,6 +116,7 @@ fun InfoLayoutSliderItem(
                 shorter = true,
                 value = value,
                 decimalFormat = decimalFormat,
+                enabled = enabled,
                 onValueChange = onValueChange,
                 valueRange = valueRange,
                 onValueChangeFinished = onValueChangeFinished,
@@ -113,7 +144,6 @@ fun InfoLayoutSliderItem(
 
 /**
  * 列表信息设置项
- * @param useMenu 使用DropdownMenu设置，提升性能
  */
 @Composable
 fun <E> InfoLayoutListItem(
@@ -123,9 +153,8 @@ fun <E> InfoLayoutListItem(
     selectedItem: E,
     onItemSelected: (E) -> Unit,
     getItemText: @Composable (E) -> String,
-    useMenu: Boolean = true,
-    color: Color = itemLayoutColorOnSurface(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    color: Color = itemColor(false),
+    contentColor: Color = onItemColor(),
     maxListHeight: Dp = 200.dp
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -135,7 +164,6 @@ fun <E> InfoLayoutListItem(
         shape = MaterialTheme.shapes.large,
         color = color,
         contentColor = contentColor,
-        shadowElevation = 1.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             InfoListLayoutHeader(
@@ -157,74 +185,44 @@ fun <E> InfoLayoutListItem(
                     }
                 }
 
-                if (useMenu) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .wrapContentSize(Alignment.TopEnd) //把菜单锚点对齐到右上角
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    AnimatedVisibility(
+                        visible = expanded,
+                        enter = expandVertically(animationSpec = getAnimateTween()),
+                        exit = shrinkVertically(animationSpec = getAnimateTween()) + fadeOut(),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                            shape = MaterialTheme.shapes.large,
-                            offset = DpOffset(x = 0.dp, y = (-8).dp)
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = maxListHeight)
+                                .padding(vertical = 4.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp)
                         ) {
-                            items.forEach { item ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = getItemText(item),
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    },
-                                    onClick = {
-                                        onItemSelected(item)
-                                        expanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        AnimatedVisibility(
-                            visible = expanded,
-                            enter = expandVertically(animationSpec = getAnimateTween()),
-                            exit = shrinkVertically(animationSpec = getAnimateTween()) + fadeOut(),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            LazyColumn(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = maxListHeight)
-                                    .padding(vertical = 4.dp),
-                                contentPadding = PaddingValues(horizontal = 4.dp)
-                            ) {
-                                items(items) { item ->
-                                    Row(
-                                        modifier = modifier
-                                            .clip(shape = MaterialTheme.shapes.medium)
-                                            .clickable {
-                                                onClick(item)
-                                            },
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(
-                                            selected = selectedItem == item,
-                                            onClick = {
-                                                onClick(item)
-                                            }
-                                        )
-                                        Column(
-                                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                                            content = {
-                                                MarqueeText(
-                                                    text = getItemText(item),
-                                                    style = MaterialTheme.typography.labelMedium
-                                                )
-                                            }
-                                        )
-                                    }
+                            items(items) { item ->
+                                Row(
+                                    modifier = modifier
+                                        .clip(shape = MaterialTheme.shapes.medium)
+                                        .clickable {
+                                            onClick(item)
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = selectedItem == item,
+                                        onClick = {
+                                            onClick(item)
+                                        }
+                                    )
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        content = {
+                                            MarqueeText(
+                                                text = getItemText(item),
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -277,7 +275,7 @@ private fun <E> InfoListLayoutHeader(
                     modifier = Modifier
                         .size(28.dp)
                         .rotate(rotation),
-                    imageVector = Icons.Rounded.ArrowDropDown,
+                    painter = painterResource(R.drawable.ic_arrow_drop_down_rounded),
                     contentDescription = stringResource(if (expanded) R.string.generic_expand else R.string.generic_collapse)
                 )
             }
@@ -291,14 +289,48 @@ fun InfoLayoutSwitchItem(
     title: String,
     value: Boolean,
     onValueChange: (Boolean) -> Unit,
-    color: Color = itemLayoutColorOnSurface(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface
+    enabled: Boolean = true,
+    color: Color = itemColor(false),
+    contentColor: Color = onItemColor()
 ) {
     InfoLayoutItem(
         modifier = modifier,
         onClick = {
             onValueChange(!value)
         },
+        enabled = enabled,
+        color = color,
+        contentColor = contentColor
+    ) {
+        MarqueeText(
+            modifier = Modifier
+                .alpha(if (enabled) 1f else DisabledAlpha)
+                .weight(1f),
+            text = title,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        DefaultSwitch(
+            checked = value,
+            onCheckedChange = onValueChange,
+            enabled = enabled
+        )
+    }
+}
+
+@Composable
+fun <E> InfoLayoutSelectItem(
+    modifier: Modifier = Modifier,
+    title: String,
+    options: List<E>,
+    current: E,
+    onClick: (E) -> Unit,
+    label: @Composable SingleChoiceSegmentedButtonRowScope.(E) -> Unit,
+    color: Color = itemColor(false),
+    contentColor: Color = onItemColor()
+) {
+    InfoLayoutItem(
+        modifier = modifier,
+        onClick = {},
         color = color,
         contentColor = contentColor
     ) {
@@ -307,10 +339,23 @@ fun InfoLayoutSwitchItem(
             text = title,
             style = MaterialTheme.typography.bodyMedium
         )
-        Switch(
-            checked = value,
-            onCheckedChange = onValueChange
-        )
+        SingleChoiceSegmentedButtonRow {
+            options.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = current == option,
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index,
+                        count = options.size
+                    ),
+                    onClick = {
+                        onClick(option)
+                    },
+                    label = {
+                        label(option)
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -320,14 +365,50 @@ fun InfoLayoutTextItem(
     title: String,
     onClick: () -> Unit,
     showArrow: Boolean = true,
-    color: Color = itemLayoutColorOnSurface(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface
+    selected: Boolean = false,
+    color: Color = itemColor(false),
+    contentColor: Color = onItemColor(),
+    enabled: Boolean = true,
+) {
+    InfoLayoutTextItem(
+        modifier = modifier,
+        title = title,
+        icon = {
+            if (showArrow) {
+                Icon(
+                    modifier = Modifier
+                        .size(28.dp),
+                    painter = painterResource(R.drawable.ic_arrow_right_rounded),
+                    contentDescription = null
+                )
+            }
+        },
+        onClick = onClick,
+        selected = selected,
+        color = color,
+        contentColor = contentColor,
+        enabled = enabled,
+    )
+}
+
+@Composable
+fun InfoLayoutTextItem(
+    modifier: Modifier = Modifier,
+    title: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit,
+    selected: Boolean = false,
+    color: Color = itemColor(false),
+    contentColor: Color = onItemColor(),
+    enabled: Boolean = true,
 ) {
     InfoLayoutItem(
         modifier = modifier,
         onClick = onClick,
+        selected = selected,
         color = color,
-        contentColor = contentColor
+        contentColor = contentColor,
+        enabled = enabled,
     ) {
         MarqueeText(
             modifier = Modifier
@@ -336,14 +417,73 @@ fun InfoLayoutTextItem(
             text = title,
             style = MaterialTheme.typography.bodyMedium
         )
-        if (showArrow) {
-            Icon(
-                modifier = Modifier
-                    .size(28.dp),
-                imageVector = Icons.AutoMirrored.Rounded.ArrowRight,
-                contentDescription = null
-            )
+        icon()
+    }
+}
+
+@Composable
+fun InfoLayoutColorItem(
+    modifier: Modifier = Modifier,
+    title: String,
+    color: Color,
+    onColorChanged: (Color) -> Unit
+) {
+    var showColorDialog by remember { mutableStateOf(false) }
+
+    InfoLayoutTextItem(
+        modifier = modifier,
+        title = title,
+        icon = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(modifier = Modifier.size(28.dp)) {
+                    TransparentChecker(
+                        modifier = Modifier.fillMaxSize(),
+                        gridSize = 18f
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(color = color)
+                    )
+                }
+
+                Icon(
+                    modifier = Modifier
+                        .size(28.dp),
+                    painter = painterResource(R.drawable.ic_arrow_right_rounded),
+                    contentDescription = null
+                )
+            }
+        },
+        onClick = {
+            showColorDialog = true
         }
+    )
+
+    if (showColorDialog) {
+        var tempColor by remember { mutableStateOf(color) }
+        val colorController = rememberColorPickerController(initialColor = tempColor)
+
+        val currentColor by remember(colorController) { colorController.color }
+
+        LaunchedEffect(currentColor) {
+            onColorChanged(currentColor)
+        }
+
+        ColorPickerDialog(
+            colorController = colorController,
+            onCancel = {
+                onColorChanged(colorController.getOriginalColor())
+                showColorDialog = false
+            },
+            onConfirm = { color ->
+                showColorDialog = false
+                onColorChanged(color)
+            }
+        )
     }
 }
 
@@ -351,17 +491,30 @@ fun InfoLayoutTextItem(
 fun InfoLayoutItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
-    color: Color = itemLayoutColorOnSurface(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    shape: Shape = MaterialTheme.shapes.large,
+    borderColor: Color = MaterialTheme.colorScheme.primary,
+    color: Color = itemColor(false),
+    contentColor: Color = onItemColor(),
     content: @Composable RowScope.() -> Unit
 ) {
+    val borderWidth by animateDpAsState(
+        if (selected) 2.dp else (-1).dp
+    )
+
     Surface(
-        modifier = modifier,
+        modifier = modifier
+            .border(
+                width = borderWidth,
+                color = borderColor,
+                shape = shape
+            ),
         color = color,
         contentColor = contentColor,
-        shape = MaterialTheme.shapes.large,
-        shadowElevation = 1.dp,
-        onClick = onClick
+        shape = shape,
+        onClick = onClick,
+        enabled = enabled
     ) {
         Row(
             modifier = Modifier

@@ -1,15 +1,34 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models
 
-import android.os.Parcel
-import android.os.Parcelable
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
 import com.movtery.zalithlauncher.game.download.assets.platform.ModLoaderDisplayLabel
+import com.movtery.zalithlauncher.game.download.assets.platform.PlatformClasses
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformFilterCode
+import kotlinx.parcelize.Parcelize
 
 /**
  * Modrinth 模组加载器类别
  */
+@Parcelize
 enum class ModrinthModLoaderCategory : ModrinthFacet, ModLoaderDisplayLabel {
     FABRIC {
         override fun facetValue(): String = "fabric"
@@ -29,7 +48,7 @@ enum class ModrinthModLoaderCategory : ModrinthFacet, ModLoaderDisplayLabel {
     },
     BABRIC {
         override fun facetValue(): String = "babric"
-        override fun getDisplayName(): String = "Babric"
+        override fun getDisplayName(): String = ModLoader.BABRIC.displayName
     },
     BTA_BABRIC {
         override fun facetValue(): String = "bta-babric"
@@ -42,11 +61,11 @@ enum class ModrinthModLoaderCategory : ModrinthFacet, ModLoaderDisplayLabel {
 //    },
     LEGACY_FABRIC {
         override fun facetValue(): String = "legacy-fabric"
-        override fun getDisplayName(): String = "Legacy Fabric"
+        override fun getDisplayName(): String = ModLoader.LEGACY_FABRIC.displayName
     },
     LITELOADER {
         override fun facetValue(): String = "liteloader"
-        override fun getDisplayName(): String = "LiteLoader"
+        override fun getDisplayName(): String = ModLoader.LITE_LOADER.displayName
     },
     RISUGAMI_MODLOADER {
         override fun facetValue(): String = "modloader"
@@ -67,22 +86,6 @@ enum class ModrinthModLoaderCategory : ModrinthFacet, ModLoaderDisplayLabel {
 
     override fun facetName(): String = "categories"
     override fun index(): Int = this.ordinal
-
-    override fun writeToParcel(dest: Parcel, flags: Int) {
-        dest.writeString(name)
-    }
-
-    companion object CREATOR : Parcelable.Creator<ModrinthModLoaderCategory> {
-        override fun createFromParcel(parcel: Parcel): ModrinthModLoaderCategory {
-            return ModrinthModLoaderCategory.valueOf(
-                value = parcel.readString()!!
-            )
-        }
-
-        override fun newArray(size: Int): Array<out ModrinthModLoaderCategory?> {
-            return arrayOfNulls(size)
-        }
-    }
 }
 
 /**
@@ -325,4 +328,18 @@ enum class ModrinthShadersCategory : ModrinthFacet, PlatformFilterCode {
 
     override fun facetName(): String = "categories"
     override fun index(): Int = this.ordinal
+}
+
+fun String.mapModrinthCategory(
+    classes: PlatformClasses
+): PlatformFilterCode? {
+    val mapValues = when (classes) {
+        PlatformClasses.MOD -> ModrinthModCategory.entries
+        PlatformClasses.MOD_PACK -> ModrinthModpackCategory.entries
+        PlatformClasses.RESOURCE_PACK -> ModrinthResourcePackCategory.entries
+        PlatformClasses.SAVES -> null
+        PlatformClasses.SHADERS -> ModrinthShadersCategory.entries
+    }
+    return mapValues?.find { it.facetValue() == this }
+        ?: ModrinthFeatures.entries.find { it.facetValue() == this }
 }

@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.components
 
 import androidx.compose.animation.animateColorAsState
@@ -15,7 +33,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -30,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.movtery.zalithlauncher.ui.screens.content.elements.DisabledAlpha
 
 /**
  * 导航栏item组件，可包含图标与文字。当item被选中时，
@@ -57,9 +75,10 @@ fun TextRailItem(
     selectedPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
     unSelectedPadding: PaddingValues = selectedPadding,
     shape: Shape = MaterialTheme.shapes.extraLarge,
-    backgroundColor: Color = NavigationRailItemDefaults.colors().selectedIndicatorColor,
-    selectedContentColor: Color = NavigationRailItemDefaults.colors().selectedIconColor,
-    unselectedContentColor: Color = NavigationRailItemDefaults.colors().unselectedIconColor
+    backgroundColor: Color = MaterialTheme.colorScheme.secondaryContainer,
+    selectedContentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+    unselectedContentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    enabled: Boolean = true
 ) {
     val animationProgress by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
@@ -70,7 +89,8 @@ fun TextRailItem(
     Box(
         modifier = modifier
             .clip(shape)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
+            .alpha(if (enabled) 1f else DisabledAlpha)
     ) {
         //背景扩散动画
         Canvas(

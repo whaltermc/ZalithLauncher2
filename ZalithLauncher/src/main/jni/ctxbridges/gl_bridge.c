@@ -8,6 +8,7 @@
 #include <dlfcn.h>
 #include <stdbool.h>
 #include <environ/environ.h>
+#include <unistd.h>
 #include "gl_bridge.h"
 #include "egl_loader.h"
 
@@ -120,12 +121,7 @@ gl_render_window_t* gl_init_context(gl_render_window_t *share) {
 }
 
 void gl_swap_surface(gl_render_window_t* bundle) {
-    if (bundle->nativeSurface != NULL)
-        ANativeWindow_release(bundle->nativeSurface);
-
-    if (bundle->surface != NULL)
-        eglDestroySurface_p(g_EglDisplay, bundle->surface);
-
+    // 有新 Surface 待切换，这里直接切换
     if (bundle->newNativeSurface != NULL)
     {
         __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Switching to new native surface");
@@ -134,12 +130,43 @@ void gl_swap_surface(gl_render_window_t* bundle) {
         ANativeWindow_acquire(bundle->nativeSurface);
         ANativeWindow_setBuffersGeometry(bundle->nativeSurface, 0, 0, bundle->format);
         bundle->surface = eglCreateWindowSurface_p(g_EglDisplay, bundle->config, bundle->nativeSurface, NULL);
-    } else {
-        __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "No new native surface, switching to 1x1 pbuffer");
-        bundle->nativeSurface = NULL;
-        const EGLint pbuffer_attrs[] = {EGL_WIDTH, 1 , EGL_HEIGHT, 1, EGL_NONE};
-        bundle->surface = eglCreatePbufferSurface_p(g_EglDisplay, bundle->config, pbuffer_attrs);
+        return;
     }
+
+    /*
+     * In some cases (see MinecraftGLSurface.start(), android kills the surface automatically for
+     * us, if we try to release/destroy it, we SIGSEGV. Check if we are -19x-19 or some other
+     * invalid value and skip the release because Android decided to handle releasing it for us.
+     * This goes against every piece of documentation I have ever seen but who actually reads those?
+     *
+     * Some drivers take forever to properly destroy the surface, they do it part at a time or
+     * some other garbage while SIGSEGVing us if we try releasing while they're in the middle of
+     * turning the surface dead. This makes the width and height make it look valid when it actually
+     * isn't so we wait for them and hope there is no race condition of both us and Android trying
+     * to release the surface. This seems driver dependent as AVD and Waydroid do not need 0.75s
+     * to set the bloody height and width to their proper values. They just do it, instantly.
+     */
+    usleep(750000); // An overkill amount of time to wait for a surface to finish dying
+    int32_t nativeWindowWidth = ANativeWindow_getWidth(pojav_environ->pojavWindow);
+    int32_t nativeWindowHeight = ANativeWindow_getHeight(pojav_environ->pojavWindow);
+    if ((nativeWindowWidth > 0) || (nativeWindowHeight > 0)) {
+        __android_log_print(ANDROID_LOG_INFO, g_LogTag, "Native surface dimensions (%d x %d)\n",
+                            nativeWindowWidth, nativeWindowHeight);
+        if (bundle->nativeSurface != NULL) {
+            ANativeWindow_release(bundle->nativeSurface);
+        }
+        if (bundle->surface != NULL) eglDestroySurface_p(g_EglDisplay, bundle->surface);
+    } else {
+        __android_log_print(ANDROID_LOG_WARN, g_LogTag,
+                            "Native surface dimensions (%d x %d) are invalid! Assuming android has already released window.\n",
+                            nativeWindowWidth, nativeWindowHeight);
+    }
+
+    // 无新窗口可用，回退到 1x1 pbuffer 避免渲染彻底中断
+    __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "No new native surface, switching to 1x1 pbuffer");
+    bundle->nativeSurface = NULL;
+    const EGLint pbuffer_attrs[] = {EGL_WIDTH, 1 , EGL_HEIGHT, 1, EGL_NONE};
+    bundle->surface = eglCreatePbufferSurface_p(g_EglDisplay, bundle->config, pbuffer_attrs);
 }
 
 void gl_make_current(gl_render_window_t* bundle) {
@@ -196,6 +223,10 @@ void gl_swap_buffers() {
             currentBundle->newNativeSurface = NULL;
             gl_swap_surface(currentBundle);
             eglMakeCurrent_p(g_EglDisplay, currentBundle->surface, currentBundle->surface, currentBundle->context);
+            // 清理过期状态，避免下一帧重复进入 gl_swap_surface 导致回退到 1×1 pbuffer
+            if (currentBundle->nativeSurface != NULL && currentBundle->state == STATE_RENDERER_NEW_WINDOW) {
+                currentBundle->state = STATE_RENDERER_ALIVE;
+            }
             __android_log_print(ANDROID_LOG_INFO, g_LogTag, "The window has died, awaiting window change");
         }
 

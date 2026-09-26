@@ -1,114 +1,85 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.mod.update
 
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.coroutine.Task
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformVersion
-import com.movtery.zalithlauncher.game.version.download.DownloadFailedException
+import com.movtery.zalithlauncher.game.download.assets.platform.mcim.mapMCIMMirrorUrls
+import com.movtery.zalithlauncher.game.download.engine.findHttpCode
+import com.movtery.zalithlauncher.game.version.download.DEFAULT_DOWNLOAD_THREADS
+import com.movtery.zalithlauncher.game.version.download.DownloadTask
+import com.movtery.zalithlauncher.game.version.download.runBatchDownloads
+import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.utils.file.formatFileSize
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.network.downloadFromMirrorListSuspend
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import java.io.File
-import java.util.concurrent.atomic.AtomicLong
+import java.io.FileNotFoundException
+
+private const val TAG = "ModVersionUpdater"
 
 class ModVersionUpdater(
     val mods: List<PlatformVersion>,
     private val targetDir: File,
-    private val maxDownloadThreads: Int = 64
+    private val maxDownloadThreads: Int = DEFAULT_DOWNLOAD_THREADS
 ) {
-    //文件下载进度计数
-    private var downloadedFileCount: AtomicLong = AtomicLong(0)
-    private var downloadedFileSize: AtomicLong = AtomicLong(0)
-    private val downloadFailedTasks = mutableSetOf<PlatformVersion>()
-
     suspend fun startDownload(task: Task) {
-        downloadAll(
-            task = task,
-            taskMessageRes = R.string.mods_update_updating
-        )
-        if (downloadFailedTasks.isNotEmpty()) {
-            downloadedFileCount.set(0)
-            downloadedFileSize.set(0L)
-            downloadAll(
-                task = task,
-                tasks = downloadFailedTasks.toList(),
-                taskMessageRes = R.string.mods_update_updating_retry
+        val tasks = mods.map { newVersion ->
+            DownloadTask(
+                urls = newVersion.platformDownloadUrl().mapMCIMMirrorUrls(),
+                verifyIntegrity = true,
+                targetFile = File(targetDir, newVersion.platformFileName()),
+                sha1 = newVersion.platformSha1()
             )
-        }
-        if (downloadFailedTasks.isNotEmpty()) throw DownloadFailedException()
-        //清除任务信息
-        task.updateProgress(1f, null)
-    }
-
-    private suspend fun downloadAll(
-        task: Task,
-        tasks: List<PlatformVersion> = mods,
-        taskMessageRes: Int,
-        totalFileCount: Int = tasks.size
-    ) = coroutineScope {
-        downloadFailedTasks.clear()
-
-        val semaphore = Semaphore(maxDownloadThreads)
-
-        val downloadJobs = tasks.map { newVersion ->
-            launch {
-                semaphore.withPermit {
-                    val urls = listOf(newVersion.platformDownloadUrl())
-                    val outputFile = File(targetDir, newVersion.platformFileName())
-
-                    runCatching {
-                        downloadFromMirrorListSuspend(
-                            urls = urls,
-                            sha1 = newVersion.platformSha1(),
-                            outputFile = outputFile
-                        ) { size ->
-                            downloadedFileSize.addAndGet(size)
-                        }
-                        //下载成功
-                        downloadedFileCount.incrementAndGet()
-                    }.onFailure { e ->
-                        if (e is CancellationException) return@onFailure
-                        lError("Download failed: ${outputFile.absolutePath}, urls: ${urls.joinToString(", ")}", e)
-                        downloadFailedTasks.add(newVersion)
-                    }
-                }
-            }
-        }
-
-        val progressJob = launch(Dispatchers.Main) {
-            while (isActive) {
-                try {
-                    ensureActive()
-                    val currentFileCount = downloadedFileCount.get()
-                    task.updateProgress(
-                        (currentFileCount.toFloat() / totalFileCount.toFloat()).coerceIn(0f, 1f),
-                        taskMessageRes,
-                        downloadedFileCount.get(), totalFileCount,
-                        formatFileSize(downloadedFileSize.get())
-                    )
-                    delay(100)
-                } catch (_: CancellationException) {
-                    break //取消
-                }
-            }
         }
 
         try {
-            downloadJobs.joinAll()
+            task.runBatchDownloads(
+                tasks = tasks,
+                maxConnections = maxDownloadThreads,
+                retryRounds = 1,
+                onSnapshot = { snapshot ->
+                    task.updateSpeed(snapshot.speedBytesPerSec)
+                    task.updateMessage(
+                        androidText(
+                            R.string.mods_update_updating,
+                            snapshot.downloadedFiles, snapshot.totalFiles,
+                            formatFileSize(snapshot.downloadedBytes)
+                        )
+                    )
+                },
+                acceptFailure = { modTask, error ->
+                    val skipped = error is FileNotFoundException || error.findHttpCode() == 404
+                    if (skipped) {
+                        //已上架又下架的资源，直接删除本地旧版并视为完成
+                        modTask.targetFile.delete()
+                    }
+                    skipped
+                }
+            )
         } catch (e: CancellationException) {
-            downloadJobs.forEach { it.cancel("Parent cancelled", e) }
-        } finally {
-            progressJob.cancel()
+            throw e
+        } catch (e: Exception) {
+            throw e
         }
+
+        task.updateProgress(1f)
+        task.updateMessage(null)
     }
 }

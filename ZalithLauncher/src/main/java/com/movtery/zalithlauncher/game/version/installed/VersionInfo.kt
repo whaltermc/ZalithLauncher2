@@ -1,22 +1,35 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.installed
 
-import android.os.Parcel
 import android.os.Parcelable
+import androidx.annotation.Keep
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
-import com.movtery.zalithlauncher.utils.getInt
-import com.movtery.zalithlauncher.utils.toBoolean
+import kotlinx.parcelize.Parcelize
 
+@Keep
+@Parcelize
 class VersionInfo(
     val minecraftVersion: String,
     val quickPlay: QuickPlay,
     val loaderInfo: LoaderInfo?
 ): Parcelable {
-    constructor(parcel: Parcel) : this(
-        parcel.readString() ?: "",
-        parcel.readParcelable(QuickPlay::class.java.classLoader)!!,
-        parcel.readParcelable(LoaderInfo::class.java.classLoader)
-    )
-
     /**
      * 拼接Minecraft的版本信息，包括ModLoader信息
      * @return 用", "分割的信息字符串
@@ -31,43 +44,12 @@ class VersionInfo(
         return infoList.joinToString(", ")
     }
 
-    /**
-     * [Reference PCL2](https://github.com/Hex-Dragon/PCL2/blob/dc611a982f8f97fab2c4275d1176db484f8549a4/Plain%20Craft%20Launcher%202/Modules/Minecraft/ModMinecraft.vb#L426-L438)
-     */
-    fun getMcVersionCode(): McVersionCode {
-        return when {
-            minecraftVersion.contains("w") || minecraftVersion.equals("pending", ignoreCase = true) -> {
-                //快照或未发布版本，特殊处理
-                McVersionCode(99, 99)
-            }
-
-            minecraftVersion.startsWith("1.") -> {
-                val parts = minecraftVersion.split(" ", "_", "-", ".")
-                val main = parts.getOrNull(1)?.takeIf { it.length <= 2 }?.toIntOrNull() ?: 0
-                val sub = parts.getOrNull(2)?.takeIf { it.length <= 2 }?.toIntOrNull() ?: 0
-                McVersionCode(main, sub)
-            }
-
-            else -> {
-                McVersionCode(0, 0)
-            }
-        }
-    }
-
-    data class McVersionCode(
-        val main: Int,
-        val sub: Int
-    )
-
+    @Keep
+    @Parcelize
     data class LoaderInfo(
         val loader: ModLoader,
         val version: String
     ): Parcelable {
-        constructor(parcel: Parcel) : this(
-            ModLoader.valueOf(parcel.readString()!!),
-            parcel.readString() ?: ""
-        )
-
         /**
          * 通过加载器名称，获得对应的环境变量键名
          */
@@ -76,76 +58,25 @@ class VersionInfo(
                 ModLoader.OPTIFINE -> "INST_OPTIFINE"
                 ModLoader.FORGE -> "INST_FORGE"
                 ModLoader.NEOFORGE -> "INST_NEOFORGE"
-                ModLoader.FABRIC -> "INST_FABRIC"
+
+                ModLoader.FABRIC,
+                ModLoader.LEGACY_FABRIC,
+                ModLoader.BABRIC
+                    -> "INST_FABRIC"
+
                 ModLoader.QUILT -> "INST_QUILT"
                 ModLoader.LITE_LOADER -> "INST_LITELOADER"
+                ModLoader.CLEANROOM -> "INST_CLEANROOM"
                 else -> null
-            }
-        }
-
-        override fun describeContents(): Int = 0
-
-        override fun writeToParcel(dest: Parcel, flags: Int) {
-            dest.writeString(loader.name)
-            dest.writeString(version)
-        }
-
-        companion object CREATOR : Parcelable.Creator<LoaderInfo> {
-            override fun createFromParcel(parcel: Parcel): LoaderInfo {
-                return LoaderInfo(parcel)
-            }
-
-            override fun newArray(size: Int): Array<LoaderInfo?> {
-                return arrayOfNulls(size)
             }
         }
     }
 
+    @Keep
+    @Parcelize
     data class QuickPlay(
         val hasQuickPlaysSupport: Boolean,
         val isQuickPlaySingleplayer: Boolean,
         val isQuickPlayMultiplayer: Boolean
-    ): Parcelable {
-        constructor(parcel: Parcel) : this(
-            parcel.readInt().toBoolean(),
-            parcel.readInt().toBoolean(),
-            parcel.readInt().toBoolean()
-        )
-
-        override fun describeContents(): Int = 0
-
-        override fun writeToParcel(dest: Parcel, flags: Int) {
-            dest.writeInt(hasQuickPlaysSupport.getInt())
-            dest.writeInt(isQuickPlaySingleplayer.getInt())
-            dest.writeInt(isQuickPlayMultiplayer.getInt())
-        }
-
-        companion object CREATOR : Parcelable.Creator<QuickPlay> {
-            override fun createFromParcel(parcel: Parcel): QuickPlay {
-                return QuickPlay(parcel)
-            }
-
-            override fun newArray(size: Int): Array<QuickPlay?> {
-                return arrayOfNulls(size)
-            }
-        }
-    }
-
-    override fun describeContents(): Int = 0
-
-    override fun writeToParcel(dest: Parcel, flags: Int) {
-        dest.writeString(minecraftVersion)
-        dest.writeParcelable(quickPlay, flags)
-        dest.writeParcelable(loaderInfo, flags)
-    }
-
-    companion object CREATOR : Parcelable.Creator<VersionInfo> {
-        override fun createFromParcel(parcel: Parcel): VersionInfo {
-            return VersionInfo(parcel)
-        }
-
-        override fun newArray(size: Int): Array<VersionInfo?> {
-            return arrayOfNulls(size)
-        }
-    }
+    ): Parcelable
 }

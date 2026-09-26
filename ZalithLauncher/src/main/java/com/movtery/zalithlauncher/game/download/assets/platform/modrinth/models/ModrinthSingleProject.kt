@@ -1,8 +1,29 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models
 
 import com.movtery.zalithlauncher.game.download.assets.platform.Platform
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformClasses
+import com.movtery.zalithlauncher.game.download.assets.platform.PlatformDisplayLabel
+import com.movtery.zalithlauncher.game.download.assets.platform.PlatformFilterCode
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformProject
+import com.movtery.zalithlauncher.game.download.assets.platform.UnsupportedClassesException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -70,7 +91,7 @@ class ModrinthSingleProject(
 
     /** 项目的项目类型 */
     @SerialName("project_type")
-    val projectType: ModrinthProjectType,
+    val projectType: String,
 
     /** 项目的下载总数 */
     @SerialName("downloads")
@@ -129,7 +150,7 @@ class ModrinthSingleProject(
 
     /** 关注项目的用户总数 */
     @SerialName("followers")
-    val followers: Int,
+    val followers: Long,
 
     /** 项目的许可证 */
     @SerialName("license")
@@ -223,7 +244,9 @@ class ModrinthSingleProject(
 
     override fun platformId(): String = id
 
-    override fun platformClasses(defaultClasses: PlatformClasses): PlatformClasses = projectType.platform
+    override fun platformClasses(defaultClasses: PlatformClasses): PlatformClasses {
+        return projectType.mapModrinthType()?.platform ?: defaultClasses
+    }
 
     override fun platformSlug(): String = slug
 
@@ -231,15 +254,41 @@ class ModrinthSingleProject(
 
     override fun platformTitle(): String = title
 
-    override fun platformSummary(): String? = description
+    override fun platformSummary(): String = description
 
     override fun platformAuthor(): String? = null
 
     override fun platformDownloadCount(): Long = downloads
 
+    override fun platformFollows(): Long = followers
+
+    override fun platformModLoaders(): List<PlatformDisplayLabel>? {
+        val modloaders = loaders.mapNotNull { string ->
+                ModrinthModLoaderCategory.entries.find { it.facetValue() == string }
+            }.toSet().takeIf { it.isNotEmpty() }
+
+        return modloaders?.sortedWith { o1, o2 -> o1.index() - o2.index() }
+    }
+
+    override fun checkClasses() {
+        //fixme: 插件类、数据包类项目被标为模组类别
+        if (projectType.mapModrinthType() == null) throw UnsupportedClassesException(projectType)
+    }
+
+    override fun platformCategories(classes: PlatformClasses): List<PlatformFilterCode>? {
+        return categories.take(4) //没有主要类别，则展示前4个
+            .mapNotNull { string ->
+                string.mapModrinthCategory(classes)
+            }
+            .toSet()
+            .takeIf { it.isNotEmpty() }
+            ?.sortedWith { o1, o2 -> o1.index() - o2.index() }
+    }
+
     override fun platformUrls(defaultClasses: PlatformClasses): PlatformProject.Urls {
+        val classes = projectType.mapModrinthType()?.platform ?: defaultClasses
         return PlatformProject.Urls(
-            projectUrl = "https://modrinth.com/${projectType.platform.modrinth!!.facetValue()}/${slug}",
+            projectUrl = "https://modrinth.com/${classes.modrinth!!.facetValue()}/${slug}",
             sourceUrl = sourceUrl,
             issuesUrl = issuesUrl,
             wikiUrl = wikiUrl
@@ -254,5 +303,15 @@ class ModrinthSingleProject(
                 description = gallery.description
             )
         }
+    }
+}
+
+/**
+ * @return 该项目是否公开可见
+ */
+fun ModrinthSingleProject.isPublic(): Boolean {
+    return when (this.status) {
+        "approved", "archived" -> true
+        else -> false
     }
 }

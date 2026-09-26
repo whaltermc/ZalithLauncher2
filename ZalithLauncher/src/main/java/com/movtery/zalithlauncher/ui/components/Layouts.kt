@@ -1,46 +1,50 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -49,19 +53,23 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.setting.AllSettings
+import com.movtery.zalithlauncher.ui.screens.content.elements.backgroundGlass
+import com.movtery.zalithlauncher.ui.theme.itemColor
+import com.movtery.zalithlauncher.ui.theme.onItemColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 
 @Composable
 fun ScalingLabel(
     modifier: Modifier = Modifier,
     text: String,
+    influencedByBackground: Boolean = true,
     shape: Shape = MaterialTheme.shapes.extraLarge,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
-    shadowElevation: Dp = 1.dp
+    color: Color = itemColor(influencedByBackground),
+    contentColor: Color = onItemColor(),
+    blur: Int = AllSettings.backgroundBlur.state,
 ) {
     val scale = remember { Animatable(initialValue = 0.95f) }
     LaunchedEffect(Unit) {
@@ -71,25 +79,50 @@ fun ScalingLabel(
         modifier = modifier.graphicsLayer(scaleY = scale.value, scaleX = scale.value),
         shape = shape,
         color = color,
-        contentColor = contentColor,
-        shadowElevation = shadowElevation
+        contentColor = contentColor
     ) {
-        Text(
-            modifier = Modifier.padding(PaddingValues(horizontal = 12.dp, vertical = 8.dp)),
-            text = text
-        )
+        Row(
+            modifier = Modifier
+                .backgroundGlass(blur, color, influencedByBackground)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Text(text = text)
+        }
     }
 }
 
 @Composable
 fun ScalingLabel(
     modifier: Modifier = Modifier,
-    onClick: () -> Unit,
     text: String,
+    onClick: () -> Unit,
+    influencedByBackground: Boolean = true,
     shape: Shape = MaterialTheme.shapes.extraLarge,
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
-    shadowElevation: Dp = 1.dp
+    color: Color = itemColor(influencedByBackground = influencedByBackground),
+    contentColor: Color = onItemColor(),
+) {
+    ScalingLabel(
+        modifier = modifier,
+        onClick = onClick,
+        text = {
+            Text(text = text)
+        },
+        influencedByBackground = influencedByBackground,
+        shape = shape,
+        color = color,
+        contentColor = contentColor,
+    )
+}
+
+@Composable
+fun ScalingLabel(
+    modifier: Modifier = Modifier,
+    text: @Composable RowScope.() -> Unit,
+    onClick: () -> Unit,
+    influencedByBackground: Boolean = true,
+    shape: Shape = MaterialTheme.shapes.extraLarge,
+    color: Color = itemColor(influencedByBackground = influencedByBackground),
+    contentColor: Color = onItemColor(),
 ) {
     val scale = remember { Animatable(initialValue = 0.95f) }
     LaunchedEffect(Unit) {
@@ -100,12 +133,11 @@ fun ScalingLabel(
         shape = shape,
         color = color,
         contentColor = contentColor,
-        shadowElevation = shadowElevation,
         onClick = onClick
     ) {
-        Text(
-            modifier = Modifier.padding(PaddingValues(horizontal = 12.dp, vertical = 8.dp)),
-            text = text
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            content = text,
         )
     }
 }
@@ -141,120 +173,6 @@ fun LittleTextLabel(
 }
 
 @Composable
-fun <E> SimpleListLayout(
-    modifier: Modifier = Modifier,
-    items: List<E>,
-    currentId: String,
-    defaultId: String,
-    title: String,
-    summary: String? = null,
-    getItemText: @Composable (E) -> String,
-    getItemId: (E) -> String,
-    getItemSummary: (@Composable (E) -> Unit)? = null,
-    enabled: Boolean = true,
-    autoCollapse: Boolean = true,
-    itemListPadding: PaddingValues = PaddingValues(bottom = 4.dp),
-    onValueChange: (E) -> Unit = {},
-    selectableAreaShape: Shape = RoundedCornerShape(22.0.dp)
-) {
-    require(items.isNotEmpty()) { "Items list cannot be empty" }
-
-    var selectedItem by remember {
-        mutableStateOf(
-            items.firstOrNull { getItemId(it) == currentId }
-                ?: items.firstOrNull { getItemId(it) == defaultId }
-                ?: items.first()
-        )
-    }
-    var expanded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(enabled) {
-        if (!enabled) expanded = false
-    }
-
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .alpha(alpha = if (enabled) 1f else 0.5f)
-            .padding(bottom = 4.dp)
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(shape = selectableAreaShape)
-                    .clickable(enabled = enabled) { expanded = !expanded }
-                    .padding(all = 8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    TitleAndSummary(
-                        title = title,
-                        summary = summary
-                    )
-                    Text(
-                        modifier = Modifier.alpha(0.7f),
-                        text = stringResource(R.string.settings_element_selected, getItemText(selectedItem)),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-                val rotation by animateFloatAsState(
-                    targetValue = if (expanded) -180f else 0f,
-                    animationSpec = getAnimateTween()
-                )
-                IconButton(
-                    modifier = Modifier
-                        .align(Alignment.CenterVertically)
-                        .size(34.dp)
-                        .rotate(rotation),
-                    enabled = enabled,
-                    onClick = { expanded = !expanded }
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.ArrowDropDown,
-                        contentDescription = stringResource(if (expanded) R.string.generic_expand else R.string.generic_collapse)
-                    )
-                }
-            }
-            Column(modifier = Modifier.fillMaxWidth()) {
-                AnimatedVisibility(
-                    visible = expanded,
-                    enter = expandVertically(animationSpec = getAnimateTween()),
-                    exit = shrinkVertically(animationSpec = getAnimateTween()) + fadeOut(),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(itemListPadding)
-                    ) {
-                        items.forEach { item ->
-                            SimpleListItem(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 3.dp),
-                                selected = getItemId(selectedItem) == getItemId(item),
-                                itemName = getItemText(item),
-                                summary = getItemSummary?.let {
-                                    { it.invoke(item) }
-                                },
-                                onClick = {
-                                    if (expanded && getItemId(selectedItem) != getItemId(item)) {
-                                        selectedItem = item
-                                        onValueChange(item)
-                                        if (autoCollapse) expanded = false
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun SimpleListItem(
     modifier: Modifier = Modifier,
     selected: Boolean,
@@ -285,132 +203,40 @@ fun SimpleListItem(
     }
 }
 
-data class IDItem(val id: String, val title: String)
-
 @Composable
-fun SimpleIDListLayout(
+fun SimpleListItem(
     modifier: Modifier = Modifier,
-    items: List<IDItem>,
-    currentId: String,
-    defaultId: String,
-    title: String,
-    summary: String? = null,
-    enabled: Boolean = true,
-    itemListPadding: PaddingValues = PaddingValues(bottom = 4.dp),
-    onValueChange: (IDItem) -> Unit = {}
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    itemName: String,
+    summary: (@Composable () -> Unit)? = null,
+    enabled: Boolean = true
 ) {
-    SimpleListLayout(
-        modifier = modifier,
-        items = items,
-        currentId = currentId,
-        defaultId = defaultId,
-        title = title,
-        summary = summary,
-        getItemText = { it.title },
-        getItemId = { it.id },
-        enabled = enabled,
-        itemListPadding = itemListPadding,
-        onValueChange = onValueChange
-    )
-}
-
-@Composable
-fun TextInputLayout(
-    modifier: Modifier = Modifier,
-    currentValue: String = "",
-    title: String,
-    summary: String? = null,
-    onValueChange: (String) -> Unit = {},
-    label: @Composable (() -> Unit)? = null,
-    supportingText: @Composable (() -> Unit)? = null,
-    singleLine: Boolean = true
-) {
-    var value by remember { mutableStateOf(currentValue) }
-
-    Column(
+    Row(
         modifier = modifier
-            .fillMaxWidth()
-            .padding(all = 8.dp)
-            .padding(bottom = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        TitleAndSummary(title = title, summary = summary)
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = value,
-            textStyle = MaterialTheme.typography.labelMedium,
-            onValueChange = {
-                value = it
-                onValueChange(value)
+            .clip(shape = MaterialTheme.shapes.large)
+            .clickable(enabled = enabled) {
+                onCheckedChange(!checked)
             },
-            label = label,
-            supportingText = supportingText,
-            singleLine = singleLine,
-            shape = MaterialTheme.shapes.large
-        )
-    }
-}
-
-@Composable
-fun SimpleIntSliderLayout(
-    modifier: Modifier = Modifier,
-    value: Int,
-    title: String,
-    summary: String? = null,
-    valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int = 0,
-    suffix: String? = null,
-    onValueChange: (Int) -> Unit = {},
-    onValueChangeFinished: () -> Unit = {},
-    enabled: Boolean = true,
-    fineTuningControl: Boolean = false,
-    appendContent: @Composable () -> Unit = {}
-) {
-    var showValueEditDialog by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(all = 8.dp)
-            .padding(bottom = 4.dp)
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
         Column(
-            modifier = Modifier.alpha(alpha = if (enabled) 1f else 0.5f)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            TitleAndSummary(
-                title = title,
-                summary = summary
+            Text(
+                text = itemName,
+                style = MaterialTheme.typography.labelMedium
             )
+            summary?.invoke()
         }
-        SimpleTextSlider(
-            modifier = Modifier.fillMaxWidth(),
-            value = value.toFloat(),
-            enabled = enabled,
-            onValueChange = { onValueChange(it.toInt()) },
-            onValueChangeFinished = { onValueChangeFinished() },
-            onTextClick = { showValueEditDialog = true },
-            toInt = true,
-            valueRange = valueRange,
-            steps = steps,
-            suffix = suffix,
-            fineTuningControl = fineTuningControl,
-            fineTuningStep = 1f,
-            appendContent = appendContent
-        )
-    }
-
-    if (showValueEditDialog) {
-        SliderValueEditDialog(
-            onDismissRequest = { showValueEditDialog = false },
-            title = title,
-            valueRange = valueRange,
-            value = value.toFloat(),
-            onValueChange = { onValueChange(it.toInt()) },
-            onValueChangeFinished = onValueChangeFinished,
-            intCheck = true
-        )
     }
 }
+
+data class IDItem(val id: String, val title: String)
 
 @Composable
 fun SliderValueEditDialog(
@@ -460,54 +286,12 @@ fun SliderValueEditDialog(
 }
 
 @Composable
-fun SwitchLayout(
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-    title: String,
-    summary: String? = null,
-    enabled: Boolean = true,
-    shape: Shape = RoundedCornerShape(22.0.dp),
-    trailingIcon: @Composable (RowScope.() -> Unit)? = null
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(shape = shape)
-            .clickable(enabled = enabled) { onCheckedChange(!checked) }
-            .padding(all = 8.dp)
-            .padding(bottom = 4.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 16.dp)
-                .alpha(if (enabled) 1f else 0.5f)
-        ) {
-            TitleAndSummary(
-                title = title,
-                summary = summary
-            )
-        }
-
-        Row(modifier = Modifier.align(Alignment.CenterVertically)) {
-            trailingIcon?.invoke(this)
-        }
-
-        Switch(
-            modifier = Modifier.align(Alignment.CenterVertically),
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = { value -> onCheckedChange(value) }
-        )
-    }
-}
-
-@Composable
 fun TitleAndSummary(
     modifier: Modifier = Modifier,
     title: String,
-    summary: String? = null
+    summary: String? = null,
+    titleStyle: TextStyle = MaterialTheme.typography.titleSmall,
+    summaryStyle: TextStyle = MaterialTheme.typography.labelSmall
 ) {
     Column(
         modifier = modifier,
@@ -515,13 +299,13 @@ fun TitleAndSummary(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleSmall
+            style = titleStyle
         )
         summary?.let { text ->
             Text(
                 modifier = Modifier.alpha(0.7f),
                 text = text,
-                style = MaterialTheme.typography.labelSmall
+                style = summaryStyle
             )
         }
     }
@@ -530,17 +314,21 @@ fun TitleAndSummary(
 @Composable
 fun FocusableBox(
     modifier: Modifier = Modifier,
-    requestKey: Any? = null
+    requestKey: Any? = null,
+    canRequestFocus: () -> Boolean = { true }
 ) {
     val focusRequester = remember { FocusRequester() }
+    val currentCanRequestFocus by rememberUpdatedState(canRequestFocus)
 
     Box(
         modifier = modifier
-            .focusable(enabled = true)
             .focusRequester(focusRequester)
+            .focusable(enabled = true)
     )
 
     LaunchedEffect(requestKey) {
-        focusRequester.requestFocus()
+        if (currentCanRequestFocus()) {
+            focusRequester.requestFocus()
+        }
     }
 }

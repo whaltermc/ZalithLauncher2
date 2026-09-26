@@ -1,9 +1,30 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.download.game
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,19 +35,19 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.nonInteractiveScrollbar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
@@ -49,36 +71,43 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation3.runtime.NavKey
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.versioninfo.MinecraftVersion
 import com.movtery.zalithlauncher.game.versioninfo.MinecraftVersions
 import com.movtery.zalithlauncher.game.versioninfo.models.isType
-import com.movtery.zalithlauncher.game.versioninfo.models.mapVersion
+import com.movtery.zalithlauncher.setting.AllSettings
+import com.movtery.zalithlauncher.ui.AndroidStringText
+import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.ui.base.BaseScreen
 import com.movtery.zalithlauncher.ui.components.CheckChip
+import com.movtery.zalithlauncher.ui.components.EdgeDirection
 import com.movtery.zalithlauncher.ui.components.LittleTextLabel
 import com.movtery.zalithlauncher.ui.components.ScalingLabel
 import com.movtery.zalithlauncher.ui.components.SimpleTextInputField
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
+import com.movtery.zalithlauncher.ui.components.fadeEdge
 import com.movtery.zalithlauncher.ui.screens.NestedNavKey
 import com.movtery.zalithlauncher.ui.screens.NormalNavKey
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
+import com.movtery.zalithlauncher.ui.screens.content.elements.backgroundGlass
+import com.movtery.zalithlauncher.ui.theme.cardColor
+import com.movtery.zalithlauncher.ui.theme.onCardColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 import com.movtery.zalithlauncher.utils.animation.swapAnimateDpAsState
 import com.movtery.zalithlauncher.utils.classes.Quadruple
 import com.movtery.zalithlauncher.utils.formatDate
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
+import com.movtery.zalithlauncher.utils.network.toLocal
 import com.movtery.zalithlauncher.utils.string.isEmptyOrBlank
 import com.movtery.zalithlauncher.viewmodel.EventViewModel
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ResponseException
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.net.ConnectException
 import java.net.UnknownHostException
 import java.nio.channels.UnresolvedAddressException
+
+private const val TAG = "SelectGameVersion"
 
 /** 版本列表加载状态 */
 private sealed interface VersionState {
@@ -87,28 +116,7 @@ private sealed interface VersionState {
     /** 加载完成 */
     data class None(val versions: List<MinecraftVersion>) : VersionState
     /** 加载出现异常 */
-    data class Failure(val message: Int, val args: Array<Any>? = null) : VersionState {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (javaClass != other?.javaClass) return false
-
-            other as Failure
-
-            if (message != other.message) return false
-            if (args != null) {
-                if (other.args == null) return false
-                if (!args.contentEquals(other.args)) return false
-            } else if (other.args != null) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = message
-            result = 31 * result + (args?.contentHashCode() ?: 0)
-            return result
-        }
-    }
+    data class Failure(val message: AndroidStringText) : VersionState
 }
 
 /**
@@ -126,7 +134,7 @@ private data class VersionFilter(
     val id: String = ""
 )
 
-private class VersionsViewModel(): ViewModel() {
+private class VersionsViewModel: ViewModel() {
     var versionState by mutableStateOf<VersionState>(VersionState.Loading)
         private set
 
@@ -134,12 +142,13 @@ private class VersionsViewModel(): ViewModel() {
     var versionFilter by mutableStateOf(VersionFilter())
         private set
 
-    private var allVersions by mutableStateOf<List<MinecraftVersion>>(emptyList())
-
     fun filterWith(filter: VersionFilter) {
         versionFilter = filter
         viewModelScope.launch {
-            versionState = VersionState.None(allVersions.filterVersions(versionFilter))
+            val allVersions = MinecraftVersions.allVersions.value
+            versionState = VersionState.None(
+                versions = allVersions.filterVersions(versionFilter)
+            )
         }
     }
 
@@ -147,30 +156,22 @@ private class VersionsViewModel(): ViewModel() {
         viewModelScope.launch {
             versionState = VersionState.Loading
             versionState = runCatching {
-                allVersions = MinecraftVersions.getVersionManifest(forceReload).versions.mapVersion()
+                MinecraftVersions.refreshVersions(forceReload)
+                val allVersions = MinecraftVersions.allVersions.value
                 VersionState.None(allVersions.filterVersions(versionFilter))
             }.getOrElse { e ->
-                lWarning("Failed to get version manifest!", e)
-                val message: Pair<Int, Array<Any>?> = when(e) {
-                    is HttpRequestTimeoutException -> R.string.error_timeout to null
-                    is UnknownHostException, is UnresolvedAddressException -> R.string.error_network_unreachable to null
-                    is ConnectException -> R.string.error_connection_failed to null
-                    is ResponseException -> {
-                        val statusCode = e.response.status
-                        val res = when (statusCode) {
-                            HttpStatusCode.Unauthorized -> R.string.error_unauthorized
-                            HttpStatusCode.NotFound -> R.string.error_notfound
-                            else -> R.string.error_client_error
-                        }
-                        res to arrayOf(statusCode)
-                    }
+                Logger.warning(TAG, "Failed to get version manifest!", e)
+                val message: AndroidStringText = when(e) {
+                    is HttpRequestTimeoutException -> androidText(R.string.error_timeout)
+                    is UnknownHostException, is UnresolvedAddressException -> androidText(R.string.error_network_unreachable)
+                    is ConnectException -> androidText(R.string.error_connection_failed)
+                    is ResponseException -> e.toLocal()
                     else -> {
-                        lError("An unknown exception was caught!", e)
-                        val errorMessage = e.localizedMessage ?: e.message ?: e::class.qualifiedName ?: "Unknown error"
-                        R.string.error_unknown to arrayOf(errorMessage)
+                        Logger.error(TAG, "An unknown exception was caught!", e)
+                        androidText(e.localizedMessage ?: e.message ?: e::class.qualifiedName ?: "Unknown error")
                     }
                 }
-                VersionState.Failure(message.first, message.second)
+                VersionState.Failure(message)
             }
         }
     }
@@ -187,9 +188,9 @@ private class VersionsViewModel(): ViewModel() {
 
 @Composable
 fun SelectGameVersionScreen(
-    mainScreenKey: NavKey?,
-    downloadScreenKey: NavKey?,
-    downloadGameScreenKey: NavKey?,
+    mainScreenKey: TitledNavKey?,
+    downloadScreenKey: TitledNavKey?,
+    downloadGameScreenKey: TitledNavKey?,
     eventViewModel: EventViewModel,
     onVersionSelect: (String) -> Unit = {}
 ) {
@@ -218,22 +219,29 @@ fun SelectGameVersionScreen(
         ) {
             when (val state = viewModel.versionState) {
                 is VersionState.Loading -> {
-                    Box(Modifier.fillMaxSize()) {
-                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LinearWavyProgressIndicator(
+                            modifier = Modifier.width(168.dp),
+                            wavelength = 32.dp
+                        )
                     }
                 }
 
                 is VersionState.Failure -> {
                     Box(Modifier.fillMaxSize()) {
-                        val message = if (state.args != null) {
-                            stringResource(state.message, *state.args)
-                        } else {
-                            stringResource(state.message)
-                        }
-
                         ScalingLabel(
                             modifier = Modifier.align(Alignment.Center),
-                            text = stringResource(R.string.download_game_failed_to_get_versions, message),
+                            text = {
+                                AndroidStringText(
+                                    text = androidText(
+                                        R.string.download_game_failed_to_get_versions,
+                                        state.message
+                                    )
+                                )
+                            },
                             onClick = {
                                 viewModel.refresh(true)
                             }
@@ -244,11 +252,13 @@ fun SelectGameVersionScreen(
                 is VersionState.None -> {
                     Column {
                         VersionHeader(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp),
                             versionFilter = viewModel.versionFilter,
                             onVersionFilterChange = { viewModel.filterWith(it) },
-                            itemContainerColor = itemLayoutColor(),
-                            itemContentColor = MaterialTheme.colorScheme.onSurface,
+                            itemContainerColor = cardColor(),
+                            itemContentColor = onCardColor(),
                             onRefreshClick = {
                                 viewModel.refresh(true)
                             }
@@ -256,8 +266,6 @@ fun SelectGameVersionScreen(
 
                         VersionList(
                             modifier = Modifier.weight(1f),
-                            itemContainerColor = itemLayoutColor(),
-                            itemContentColor = MaterialTheme.colorScheme.onSurface,
                             versions = state.versions,
                             onVersionSelect = onVersionSelect,
                             openLink = { url ->
@@ -277,15 +285,16 @@ fun SelectGameVersionScreen(
 private fun List<MinecraftVersion>.filterVersions(
     versionFilter: VersionFilter
 ) = this.filter { version ->
-    val type = version.isType(
+    version.isType(
         release = versionFilter.release,
         snapshot = versionFilter.snapshot,
         aprilFools = versionFilter.aprilFools,
         old = versionFilter.old
     )
+}.filter { version ->
+    //Fix：单独过滤版本名称
     val versionId = versionFilter.id
-    val id = (versionId.isEmptyOrBlank()) || version.version.id.contains(versionId)
-    (type && id)
+    versionId.isEmptyOrBlank() || version.version.id.contains(versionId)
 }
 
 @Composable
@@ -297,81 +306,91 @@ private fun VersionHeader(
     itemContentColor: Color,
     onRefreshClick: () -> Unit = {}
 ) {
-    Column(
-        modifier = modifier.padding(horizontal = 12.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            //版本筛选条件
-            VersionTypeItem(
-                selected = versionFilter.release,
-                onClick = {
-                    onVersionFilterChange(versionFilter.copy(release = versionFilter.release.not()))
-                },
-                text = stringResource(R.string.download_game_type_release)
-            )
-            VersionTypeItem(
-                selected = versionFilter.snapshot,
-                onClick = {
-                    onVersionFilterChange(versionFilter.copy(snapshot = versionFilter.snapshot.not()))
-                },
-                text = stringResource(R.string.download_game_type_snapshot)
-            )
-            VersionTypeItem(
-                selected = versionFilter.aprilFools,
-                onClick = {
-                    onVersionFilterChange(versionFilter.copy(aprilFools = versionFilter.aprilFools.not()))
-                },
-                text = stringResource(R.string.download_game_type_april_fools)
-            )
-            VersionTypeItem(
-                selected = versionFilter.old,
-                onClick = {
-                    onVersionFilterChange(versionFilter.copy(old = versionFilter.old.not()))
-                },
-                text = stringResource(R.string.download_game_type_old)
-            )
-
-            //搜索、刷新
+    Column(modifier = modifier) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                SimpleTextInputField(
+                val scrollState = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fadeEdge(
+                            state = scrollState,
+                            direction = EdgeDirection.Horizontal
+                        )
+                        .widthIn(max = this@BoxWithConstraints.maxWidth / 5 * 3) //3/5
+                        .horizontalScroll(scrollState),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    //版本筛选条件
+                    VersionTypeItem(
+                        selected = versionFilter.release,
+                        onClick = {
+                            onVersionFilterChange(versionFilter.copy(release = versionFilter.release.not()))
+                        },
+                        text = stringResource(R.string.download_game_type_release)
+                    )
+                    VersionTypeItem(
+                        selected = versionFilter.snapshot,
+                        onClick = {
+                            onVersionFilterChange(versionFilter.copy(snapshot = versionFilter.snapshot.not()))
+                        },
+                        text = stringResource(R.string.download_game_type_snapshot)
+                    )
+                    VersionTypeItem(
+                        selected = versionFilter.aprilFools,
+                        onClick = {
+                            onVersionFilterChange(versionFilter.copy(aprilFools = versionFilter.aprilFools.not()))
+                        },
+                        text = stringResource(R.string.download_game_type_april_fools)
+                    )
+                    VersionTypeItem(
+                        selected = versionFilter.old,
+                        onClick = {
+                            onVersionFilterChange(versionFilter.copy(old = versionFilter.old.not()))
+                        },
+                        text = stringResource(R.string.download_game_type_old)
+                    )
+                }
+
+                //搜索、刷新
+                Row(
                     modifier = Modifier.weight(1f),
-                    value = versionFilter.id,
-                    onValueChange = { onVersionFilterChange(versionFilter.copy(id = it)) },
-                    color = itemContainerColor,
-                    contentColor = itemContentColor,
-                    singleLine = true,
-                    hint = {
-                        Text(
-                            text = stringResource(R.string.generic_search),
-                            style = TextStyle(color = itemContentColor).copy(fontSize = 12.sp)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SimpleTextInputField(
+                        modifier = Modifier.weight(1f),
+                        value = versionFilter.id,
+                        onValueChange = { onVersionFilterChange(versionFilter.copy(id = it)) },
+                        color = itemContainerColor,
+                        contentColor = itemContentColor,
+                        singleLine = true,
+                        hint = {
+                            Text(
+                                text = stringResource(R.string.generic_search),
+                                style = TextStyle(color = itemContentColor).copy(fontSize = 12.sp)
+                            )
+                        }
+                    )
+
+                    IconButton(
+                        onClick = onRefreshClick
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_refresh),
+                            contentDescription = stringResource(R.string.generic_refresh)
                         )
                     }
-                )
-
-                IconButton(
-                    onClick = onRefreshClick,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        contentColor = itemContentColor
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = stringResource(R.string.generic_refresh)
-                    )
                 }
             }
         }
 
         HorizontalDivider(
             modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
         )
     }
 }
@@ -396,15 +415,18 @@ private fun VersionTypeItem(
 @Composable
 private fun VersionList(
     modifier: Modifier = Modifier,
-    itemContainerColor: Color,
-    itemContentColor: Color,
     versions: List<MinecraftVersion>,
     onVersionSelect: (String) -> Unit,
     openLink: (url: String) -> Unit
 ) {
+    val scrollState = rememberLazyListState()
     LazyColumn(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        modifier = modifier.nonInteractiveScrollbar(
+            state = scrollState.scrollIndicatorState!!,
+            orientation = Orientation.Vertical,
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+        state = scrollState,
     ) {
         items(versions) { version ->
             VersionItemLayout(
@@ -418,8 +440,6 @@ private fun VersionList(
                 onAccessWiki = { wikiUrl ->
                     openLink(wikiUrl)
                 },
-                color = itemContainerColor,
-                contentColor = itemContentColor
             )
         }
     }
@@ -431,8 +451,11 @@ private fun VersionItemLayout(
     version: MinecraftVersion,
     onClick: () -> Unit = {},
     onAccessWiki: (String) -> Unit = {},
-    color: Color,
-    contentColor: Color,
+    shape: Shape = MaterialTheme.shapes.large,
+    influencedByBackground: Boolean = true,
+    color: Color = cardColor(influencedByBackground),
+    contentColor: Color = onCardColor(),
+    blur: Int = AllSettings.backgroundBlur.state,
 ) {
     val scale = remember { Animatable(initialValue = 0.95f) }
     LaunchedEffect(Unit) {
@@ -444,15 +467,15 @@ private fun VersionItemLayout(
     Surface(
         modifier = modifier.graphicsLayer(scaleY = scale.value, scaleX = scale.value),
         onClick = onClick,
-        shape = MaterialTheme.shapes.large,
+        shape = shape,
         color = color,
-        contentColor = contentColor,
-        shadowElevation = 1.dp
+        contentColor = contentColor
     ) {
         Row(
             modifier = Modifier
-                .clip(shape = MaterialTheme.shapes.large)
-                .padding(all = 8.dp),
+                .clip(shape = shape)
+                .backgroundGlass(blur, color, influencedByBackground)
+                .padding(all = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             icon?.let { versionIcon ->
@@ -461,7 +484,7 @@ private fun VersionItemLayout(
                     painter = versionIcon,
                     contentDescription = null
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(12.dp))
             }
 
             Column(
@@ -506,7 +529,7 @@ private fun VersionItemLayout(
                     onClick = { onAccessWiki(url) }
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Link,
+                        painter = painterResource(R.drawable.ic_link),
                         contentDescription = "Wiki"
                     )
                 }
@@ -521,13 +544,14 @@ private fun getVersionComponents(
 ): Quadruple<Painter?, String, String?, String?> {
     val vmVer = version.version
     val summary = version.summary?.let { stringResource(it) }
+    val urlSuffix = version.urlSuffix ?: vmVer.id
 
     return when (version.type) {
         MinecraftVersion.Type.Release -> {
             Quadruple(
                 painterResource(R.drawable.img_minecraft),
                 stringResource(R.string.download_game_type_release),
-                stringResource(R.string.url_wiki_minecraft_game_release, vmVer.id),
+                stringResource(R.string.url_wiki_minecraft_game_release, urlSuffix),
                 summary
             )
         }
@@ -535,7 +559,7 @@ private fun getVersionComponents(
             Quadruple(
                 painterResource(R.drawable.img_command_block),
                 stringResource(R.string.download_game_type_snapshot),
-                stringResource(R.string.url_wiki_minecraft_game_snapshot, vmVer.id),
+                stringResource(R.string.url_wiki_minecraft_game_snapshot, urlSuffix),
                 summary
             )
         }
@@ -543,7 +567,7 @@ private fun getVersionComponents(
             Quadruple(
                 painterResource(R.drawable.img_diamond_block),
                 stringResource(R.string.download_game_type_april_fools),
-                stringResource(R.string.url_wiki_minecraft_game_snapshot, vmVer.id),
+                stringResource(R.string.url_wiki_minecraft_game_snapshot, urlSuffix),
                 summary
             )
         }

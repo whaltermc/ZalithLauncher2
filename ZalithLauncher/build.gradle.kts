@@ -1,15 +1,17 @@
 import com.android.build.api.variant.FilterConfiguration.FilterType.ABI
+import com.android.build.api.variant.impl.VariantOutputImpl
 import com.android.build.gradle.tasks.MergeSourceSetFolders
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.hilt)
     id("com.google.devtools.ksp")
     id("kotlinx-serialization")
-    id("stringfog")
+    id("kotlin-parcelize")
+    id("com.movtery.buildkeys")
 }
-apply(plugin = "stringfog")
 
 val zalithPackageName = "com.movtery.zalithlauncher"
 val launcherAPPName = project.findProperty("launcher_app_name") as? String ?: error("The \"launcher_app_name\" property is not set in gradle.properties.")
@@ -25,7 +27,7 @@ val defaultStorePassword = project.findProperty("default_store_password") as? St
 val defaultKeyPassword = project.findProperty("default_key_password") as? String ?: error("The \"default_key_password\" property is not set in gradle.properties.")
 val defaultCurseForgeApiKey = project.findProperty("curseforge_api_key") as? String
 
-val generatedZalithDir = file("$buildDir/generated/source/zalith/java")
+val projectArch: String = System.getProperty("arch", "all")
 
 fun getKeyFromLocal(envKey: String, fileName: String? = null, default: String? = null): String {
     val key = System.getenv(envKey)
@@ -38,16 +40,13 @@ fun getKeyFromLocal(envKey: String, fileName: String? = null, default: String? =
     }
 }
 
-configure<com.github.megatronking.stringfog.plugin.StringFogExtension> {
-    implementation = "com.github.megatronking.stringfog.xor.StringFogImpl"
-    fogPackages = arrayOf("$zalithPackageName.info")
-    kg = com.github.megatronking.stringfog.plugin.kg.RandomKeyGenerator()
-    mode = com.github.megatronking.stringfog.plugin.StringFogMode.bytes
-}
-
 android {
     namespace = zalithPackageName
-    compileSdk = 36
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
+    }
 
     signingConfigs {
         create("releaseBuild") {
@@ -68,7 +67,7 @@ android {
         applicationId = zalithPackageName
         applicationIdSuffix = ".v2"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 34
         versionCode = launcherVersionCode
         versionName = launcherVersionName
         manifestPlaceholders["launcher_name"] = launcherAPPName
@@ -76,8 +75,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("releaseBuild")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
         debug {
             isMinifyEnabled = false
@@ -87,43 +91,8 @@ android {
         }
     }
 
-    sourceSets["main"].java.srcDirs(generatedZalithDir)
-
-    androidComponents {
-        onVariants { variant ->
-            variant.outputs.forEach { output ->
-                if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
-                    val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
-                    afterEvaluate {
-                        val task = tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
-                        task.doLast {
-                            val arch = System.getProperty("arch", "all")
-                            val assetsDir = task.outputDir.get().asFile
-                            val jreList = listOf("jre-8", "jre-17", "jre-21")
-                            println("arch:$arch")
-                            jreList.forEach { jreVersion ->
-                                val runtimeDir = File("$assetsDir/runtimes/$jreVersion")
-                                println("runtimeDir:${runtimeDir.absolutePath}")
-                                runtimeDir.listFiles()?.forEach {
-                                    if (arch != "all" && it.name != "version" && !it.name.contains("universal") && it.name != "bin-${arch}.tar.xz") {
-                                        println("delete:${it} : ${it.delete()}")
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    (output.getFilter(ABI)?.identifier ?: "all").let { abi ->
-                        val baseName = "$launcherName-${if (variant.buildType == "release") defaultConfig.versionName else "Debug-${defaultConfig.versionName}"}"
-                        output.outputFileName = if (abi == "all") "$baseName.apk" else "$baseName-$abi.apk"
-                    }
-                }
-            }
-        }
-    }
-
     splits {
-        val arch = System.getProperty("arch", "all").takeIf { it != "all" } ?: return@splits
+        val arch = projectArch.takeIf { it != "all" } ?: return@splits
         abi {
             isEnable = true
             reset()
@@ -152,61 +121,102 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    kotlinOptions {
-        jvmTarget = "11"
+        // sora-editor language-textmate
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         compose = true
         buildConfig = true
         prefab = true
     }
-}
-
-fun generateJavaClass(
-    sourceOutputDir: File,
-    packageName: String,
-    className: String,
-    constantList: List<String>
-) {
-    val outputDir = File(sourceOutputDir, packageName.replace(".", "/"))
-    outputDir.mkdirs()
-    val javaFile = File(outputDir, "$className.java")
-    javaFile.writeText(
-        """
-        |/**
-        | * Automatically generated file. DO NOT MODIFY
-        | */
-        |package $packageName;
-        |
-        |public class $className {
-        |${constantList.joinToString("\n") { "\t$it" }}
-        |}
-        """.trimMargin()
-    )
-    println("Generated Java file: ${javaFile.absolutePath}")
-}
-
-tasks.register("generateInfoDistributor") {
-    doLast {
-        fun String.toStatement(type: String = "String", variable: String) = "public static final $type $variable = $this;"
-
-        val constantList = listOf(
-            "\"${getKeyFromLocal("OAUTH_CLIENT_ID", ".oauth_client_id.txt", defaultOAuthClientID)}\"".toStatement(variable = "OAUTH_CLIENT_ID"),
-            "\"$launcherAPPName\"".toStatement(variable = "LAUNCHER_NAME"),
-            "\"$launcherName\"".toStatement(variable = "LAUNCHER_IDENTIFIER"),
-            "\"$launcherShortName\"".toStatement(variable = "LAUNCHER_SHORT_NAME"),
-            "\"$launcherUrl\"".toStatement(variable = "URL_HOME"),
-            "\"${getKeyFromLocal("CURSEFORGE_API_KEY", ".curseforge_api.txt", defaultCurseForgeApiKey)}\"".toStatement(variable = "CURSEFORGE_API")
-        )
-        generateJavaClass(generatedZalithDir, "$zalithPackageName.info", "InfoDistributor", constantList)
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            //让 android.util.Log 等框架方法在本地单测中返回默认值而非抛出异常
+            isReturnDefaultValues = true
+        }
     }
 }
 
-tasks.named("preBuild") {
-    dependsOn("generateInfoDistributor")
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            if (output is VariantOutputImpl) {
+                val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
+                afterEvaluate {
+                    val task = tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
+                    task.inputs.property("lwjglArch", projectArch)
+                    task.doLast {
+                        val assetsDir = task.outputDir.get().asFile
+                        val tag = "JREAssetsCleanup"
+                        logger.lifecycle("[$tag] arch: $projectArch")
+                        val jreList = listOf("jre-8", "jre-17", "jre-21", "jre-25")
+                        jreList.forEach { jreVersion ->
+                            val runtimeDir = File("$assetsDir/runtimes/$jreVersion")
+                            logger.lifecycle("[$tag] runtimeDir: ${runtimeDir.absolutePath}")
+                            runtimeDir.listFiles()?.forEach {
+                                if (projectArch != "all" && it.name != "version" && !it.name.contains("universal") && it.name != "bin-$projectArch.tar.xz") {
+                                    logger.lifecycle("[$tag] delete: $it : ${it.delete()}")
+                                }
+                            }
+                        }
+
+                        if (projectArch == "all") return@doLast
+                        val abi = when (projectArch) {
+                            "arm" -> "armeabi-v7a"
+                            "arm64" -> "arm64-v8a"
+                            "x86" -> "x86"
+                            "x86_64" -> "x86_64"
+                            else -> return@doLast
+                        }
+                        val lwjglVersions = file("libs").listFiles { f ->
+                            f.name.matches(Regex("lwjgl-\\d+\\.\\d+\\.\\d+-natives-release\\.aar"))
+                        }
+                            ?.map { Regex("lwjgl-(\\d+\\.\\d+\\.\\d+)-natives-release\\.aar").find(it.name)!!.groupValues[1] }
+                            ?: emptyList()
+                        lwjglVersions.forEach { version ->
+                            val nativesDir = File(assetsDir, "app_runtime/lwjgl/$version/natives")
+                            if (nativesDir.isDirectory) {
+                                nativesDir.listFiles()?.forEach { dir ->
+                                    if (dir.isDirectory && dir.name != abi) {
+                                        logger.lifecycle("Removing non-target-arch natives: $dir")
+                                        dir.deleteRecursively()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                (output.getFilter(ABI)?.identifier ?: "all").let { abi ->
+                    val baseName = "$launcherName-${if (variant.buildType == "release") launcherVersionName else "Debug-$launcherVersionName"}"
+                    output.outputFileName = if (abi == "all") "$baseName.apk" else "$baseName-$abi.apk"
+                }
+            }
+        }
+    }
+}
+
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
+        )
+    }
+}
+
+buildKeys {
+    string("OAUTH_CLIENT_ID", getKeyFromLocal("OAUTH_CLIENT_ID", ".oauth_client_id.txt", defaultOAuthClientID), true)
+    string("LAUNCHER_NAME", launcherAPPName, true)
+    string("LAUNCHER_IDENTIFIER", launcherName, true)
+    string("LAUNCHER_SHORT_NAME", launcherShortName, true)
+    string("URL_HOME", launcherUrl, true)
+    string("CURSEFORGE_API", getKeyFromLocal("CURSEFORGE_API_KEY", ".curseforge_api.txt", defaultCurseForgeApiKey), true)
+    string("BUILD_ARCH", projectArch)
 }
 
 dependencies {
@@ -221,22 +231,40 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.material.icons.core)
-    implementation(libs.androidx.material.icons.extended)
+    debugImplementation(libs.androidx.ui.tooling)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.constraintlayout.compose)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.webkit)
+    implementation(libs.documentfile)
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
+    implementation(libs.coil.svg)
     implementation(libs.coil.network.ktor3)
-    implementation(libs.compose.colorpicker)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.material)
     implementation(libs.material.color.utilities)
+    implementation(libs.materialKolor)
     implementation(libs.reorderable)
+    implementation(libs.richtext.commonmark)
+    implementation(libs.richtext.ui)
+    implementation(libs.richtext.ui.material3)
+    implementation(platform(libs.editor.bom))
+    implementation(libs.editor)
+    implementation(libs.editor.language.textmate)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+    implementation(libs.dev.haze)
+    implementation(libs.dev.haze.blur)
     //Project
     implementation(project(":LayerController"))
+    implementation(project(":ColorPicker"))
+    implementation(project(":CardGrid"))
+    implementation(project(":Terracotta"))
+    implementation(project(":InputMap"))
     //Utils
     implementation(libs.bytehook)
     implementation(libs.gson)
@@ -244,29 +272,39 @@ dependencies {
     implementation(libs.commons.codec)
     implementation(libs.commons.compress)
     implementation(libs.xz)
+    implementation(libs.zip4j)
+    implementation(libs.okio)
     implementation(libs.okhttp)
     implementation(libs.ktor.http)
     implementation(libs.ktor.client.core)
-    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.minidns.hla)
     implementation(libs.toml4j)
     implementation(libs.maven.artifact)
     implementation(libs.mmkv)
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
+    implementation(libs.fishnet)
+    implementation(libs.process.phoenix)
+    implementation(libs.lunarcalendar)
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
     //Safe
-    implementation(libs.stringfog.xor)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.sqlcipher.android)
     ksp(libs.androidx.room.compiler)
     //Support
     implementation(libs.proxy.client.android)
+    //Hilt
+    implementation(libs.dagger.hilt.android)
+    ksp(libs.dagger.hilt.android.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
     //Test
     testImplementation(libs.junit)
+    testImplementation(libs.mockwebserver3)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

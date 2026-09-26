@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.versions
 
 import androidx.compose.animation.AnimatedVisibility
@@ -5,8 +23,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,27 +41,23 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Deselect
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.nonInteractiveScrollbar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,6 +72,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
@@ -64,33 +82,43 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation3.runtime.NavKey
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.coroutine.TaskSystem
 import com.movtery.zalithlauncher.game.version.installed.Version
 import com.movtery.zalithlauncher.game.version.installed.VersionFolders
 import com.movtery.zalithlauncher.ui.base.BaseScreen
+import com.movtery.zalithlauncher.ui.components.CardTitleLayout
+import com.movtery.zalithlauncher.ui.components.EdgeDirection
 import com.movtery.zalithlauncher.ui.components.IconTextButton
 import com.movtery.zalithlauncher.ui.components.ProgressDialog
 import com.movtery.zalithlauncher.ui.components.ScalingLabel
 import com.movtery.zalithlauncher.ui.components.SimpleAlertDialog
 import com.movtery.zalithlauncher.ui.components.SimpleTextInputField
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
+import com.movtery.zalithlauncher.ui.components.fadeEdge
 import com.movtery.zalithlauncher.ui.screens.NestedNavKey
 import com.movtery.zalithlauncher.ui.screens.NormalNavKey
-import com.movtery.zalithlauncher.ui.screens.content.elements.ImportFileButton
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
+import com.movtery.zalithlauncher.ui.screens.content.elements.ImportMultipleFileButton
+import com.movtery.zalithlauncher.ui.screens.content.elements.SortByDropdownMenu
+import com.movtery.zalithlauncher.ui.screens.content.elements.SortByEnum
+import com.movtery.zalithlauncher.ui.screens.content.elements.rememberMultipleUriImportTaskBuilder
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.DeleteAllOperation
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.FileNameInputDialog
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.LoadingState
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.ShaderOperation
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.ShaderPackInfo
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.filterShaders
-import com.movtery.zalithlauncher.ui.screens.content.versions.layouts.VersionSettingsBackground
+import com.movtery.zalithlauncher.ui.screens.content.versions.layouts.VersionChunkBackground
+import com.movtery.zalithlauncher.ui.theme.itemColor
+import com.movtery.zalithlauncher.ui.theme.onItemColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 import com.movtery.zalithlauncher.utils.animation.swapAnimateDpAsState
+import com.movtery.zalithlauncher.utils.file.FolderFileCounter
 import com.movtery.zalithlauncher.utils.file.formatFileSize
 import com.movtery.zalithlauncher.viewmodel.ErrorViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -106,6 +134,10 @@ private class ShadersManageViewModel(
         private set
     var filteredShaders by mutableStateOf<List<ShaderPackInfo>?>(null)
         private set
+    var sortByEnum by mutableStateOf(SortByEnum.FileName)
+        private set
+    var isAscending by mutableStateOf(true)
+        private set
 
     var shadersState by mutableStateOf<LoadingState>(LoadingState.None)
         private set
@@ -113,17 +145,42 @@ private class ShadersManageViewModel(
     /**
      * 已选择的文件
      */
-    val selectedFiles = mutableStateListOf<File>()
+    val selectedPacks = mutableStateListOf<ShaderPackInfo>()
 
     /**
      * 删除所有已选择文件的操作流程
      */
     var deleteAllOperation by mutableStateOf<DeleteAllOperation>(DeleteAllOperation.None)
 
-    fun refresh() {
-        viewModelScope.launch {
+    /** 临时记录的光影包数量 */
+    private var packCount = FolderFileCounter(shadersDir)
+
+    /**
+     * 全选所有文件
+     */
+    fun selectAllFiles() {
+        filteredShaders?.forEach { pack ->
+            if (!selectedPacks.contains(pack)) selectedPacks.add(pack)
+        }
+    }
+
+    fun clearSelected() {
+        filteredShaders?.let {
+            selectedPacks.removeAll(it)
+        }
+    }
+
+    private var job: Job? = null
+    /**
+     * @param checkCount 刷新目录内文件数量记录
+     */
+    fun refresh(
+        checkCount: Boolean = true
+    ) {
+        job = viewModelScope.launch {
             shadersState = LoadingState.Loading
-            selectedFiles.clear()
+            selectedPacks.clear()
+            if (checkCount) packCount.checkDir()
 
             withContext(Dispatchers.IO) {
                 try {
@@ -145,11 +202,19 @@ private class ShadersManageViewModel(
             }
 
             shadersState = LoadingState.None
+            job = null
+        }
+    }
+
+    fun checkCountAndRefresh() {
+        val isUnchecked = packCount.isUnchecked()
+        if (packCount.checkDir() && !isUnchecked && job == null) {
+            refresh(checkCount = false)
         }
     }
 
     init {
-        refresh()
+        refresh(checkCount = false)
     }
 
     fun updateFilter(name: String) {
@@ -157,8 +222,38 @@ private class ShadersManageViewModel(
         filterShaders()
     }
 
+    fun updateSortBy(sortByEnum: SortByEnum) {
+        this.sortByEnum = sortByEnum
+        filterShaders()
+    }
+
+    fun updateSortOrder() {
+        this.isAscending = !this.isAscending
+        filterShaders()
+    }
+
+    val supportedSortByEnums = listOf(
+        SortByEnum.FileName, SortByEnum.FileModifiedTime
+    )
+
     private fun filterShaders() {
-        filteredShaders = allShaders.takeIf { it.isNotEmpty() }?.filterShaders(nameFilter)
+        filteredShaders = allShaders
+            .takeIf { it.isNotEmpty() }
+            ?.filterShaders(nameFilter)
+            ?.sortedWith { o1, o2 ->
+                val file1 = o1.file
+                val file2 = o2.file
+                val value = when (sortByEnum) {
+                    SortByEnum.FileName -> file1.name.compareTo(file2.name)
+                    SortByEnum.FileModifiedTime -> file2.lastModified().compareTo(file1.lastModified())
+                    else -> error("This sorting method is not supported: $sortByEnum")
+                }
+                if (isAscending) {
+                    value
+                } else {
+                    -value
+                }
+            }
     }
 }
 
@@ -172,10 +267,11 @@ private fun rememberShadersManageViewModel(
     ShadersManageViewModel(shadersDir)
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ShadersManagerScreen(
-    mainScreenKey: NavKey?,
-    versionsScreenKey: NavKey?,
+    mainScreenKey: TitledNavKey?,
+    versionsScreenKey: TitledNavKey?,
     version: Version,
     backToMainScreen: () -> Unit,
     swapToDownload: () -> Unit,
@@ -186,14 +282,21 @@ fun ShadersManagerScreen(
         return
     }
 
+    val shadersDir = remember(version) {
+        VersionFolders.SHADERS.getDir(version.getGameDir())
+    }
+
     BaseScreen(
         levels1 = listOf(
             Pair(NestedNavKey.VersionSettings::class.java, mainScreenKey)
         ),
         Triple(NormalNavKey.Versions.ShadersManager, versionsScreenKey, false),
     ) { isVisible ->
-        val shadersDir = File(version.getGameDir(), VersionFolders.SHADERS.folderName)
         val viewModel = rememberShadersManageViewModel(shadersDir, version)
+
+        LaunchedEffect(Unit) {
+            viewModel.checkCountAndRefresh()
+        }
 
         DeleteAllOperation(
             operation = viewModel.deleteAllOperation,
@@ -207,7 +310,7 @@ fun ShadersManagerScreen(
             swapIn = isVisible
         )
 
-        VersionSettingsBackground(
+        VersionChunkBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(all = 12.dp)
@@ -218,9 +321,6 @@ fun ShadersManagerScreen(
 
             when (viewModel.shadersState) {
                 LoadingState.None -> {
-                    val itemColor = itemLayoutColor()
-                    val itemContentColor = MaterialTheme.colorScheme.onSurface
-
                     var shaderOperation by remember { mutableStateOf<ShaderOperation>(ShaderOperation.None) }
                     fun runProgress(task: () -> Unit) {
                         operationScope.launch(Dispatchers.IO) {
@@ -249,27 +349,31 @@ fun ShadersManagerScreen(
 
                     Column {
                         ShadersActionsHeader(
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .padding(top = 4.dp)
-                                .fillMaxWidth(),
-                            inputFieldColor = itemColor,
-                            inputFieldContentColor = itemContentColor,
+                            modifier = Modifier.fillMaxWidth(),
                             nameFilter = viewModel.nameFilter,
                             onNameFilterChange = { viewModel.updateFilter(it) },
+                            supportedSortByEnums = viewModel.supportedSortByEnums,
+                            sortByEnum = viewModel.sortByEnum,
+                            onSortByChanged = { viewModel.updateSortBy(it) },
+                            isAscending = viewModel.isAscending,
+                            onToggleSortOrder = { viewModel.updateSortOrder() },
                             shadersDir = shadersDir,
                             onDeleteAll = {
+                                val selected = viewModel.selectedPacks
                                 if (
                                     viewModel.deleteAllOperation == DeleteAllOperation.None &&
-                                    viewModel.selectedFiles.isNotEmpty()
+                                    selected.isNotEmpty()
                                 ) {
                                     viewModel.deleteAllOperation = DeleteAllOperation.Warning(
-                                        files = viewModel.selectedFiles
+                                        files = selected.map { pack ->
+                                            pack.file
+                                        }
                                     )
                                 }
                             },
-                            isFilesSelected = viewModel.selectedFiles.isNotEmpty(),
-                            onClearFilesSelected = { viewModel.selectedFiles.clear() },
+                            isFilesSelected = viewModel.selectedPacks.isNotEmpty(),
+                            onSelectAll = { viewModel.selectAllFiles() },
+                            onClearFilesSelected = { viewModel.clearSelected() },
                             swapToDownload = swapToDownload,
                             refresh = { viewModel.refresh() },
                             submitError = submitError
@@ -280,18 +384,19 @@ fun ShadersManagerScreen(
                                 .fillMaxWidth()
                                 .weight(1f),
                             shadersList = viewModel.filteredShaders,
-                            selectedFiles = viewModel.selectedFiles,
-                            removeFromSelected = { viewModel.selectedFiles.remove(it) },
-                            addToSelected = { viewModel.selectedFiles.add(it) },
-                            itemColor = itemColor,
-                            itemContentColor = itemContentColor,
+                            selectedPacks = viewModel.selectedPacks,
+                            removeFromSelected = { viewModel.selectedPacks.remove(it) },
+                            addToSelected = { viewModel.selectedPacks.add(it) },
                             updateOperation = { shaderOperation = it }
                         )
                     }
                 }
                 LoadingState.Loading -> {
-                    Box(Modifier.fillMaxSize()) {
-                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LoadingIndicator()
                     }
                 }
             }
@@ -302,105 +407,165 @@ fun ShadersManagerScreen(
 @Composable
 private fun ShadersActionsHeader(
     modifier: Modifier,
-    inputFieldColor: Color,
-    inputFieldContentColor: Color,
     nameFilter: String,
     onNameFilterChange: (String) -> Unit,
+    supportedSortByEnums: List<SortByEnum>,
+    sortByEnum: SortByEnum,
+    onSortByChanged: (SortByEnum) -> Unit,
+    isAscending: Boolean,
+    onToggleSortOrder: () -> Unit,
     shadersDir: File,
     onDeleteAll: () -> Unit,
     isFilesSelected: Boolean,
+    onSelectAll: () -> Unit,
     onClearFilesSelected: () -> Unit,
     swapToDownload: () -> Unit,
     refresh: () -> Unit,
-    submitError: (ErrorViewModel.ThrowableMessage) -> Unit
+    submitError: (ErrorViewModel.ThrowableMessage) -> Unit,
+    inputFieldColor: Color = itemColor(),
+    inputFieldContentColor: Color = onItemColor(),
 ) {
-    Column(modifier = modifier) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
+    CardTitleLayout(modifier = modifier) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .padding(top = 4.dp)
         ) {
-            SimpleTextInputField(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 4.dp),
-                value = nameFilter,
-                onValueChange = { onNameFilterChange(it) },
-                hint = {
-                    Text(
-                        text = stringResource(R.string.generic_search),
-                        style = TextStyle(color = LocalContentColor.current).copy(fontSize = 12.sp)
-                    )
-                },
-                color = inputFieldColor,
-                contentColor = inputFieldContentColor,
-                singleLine = true
-            )
-
-
-            AnimatedVisibility(
-                modifier = Modifier.height(IntrinsicSize.Min),
-                visible = isFilesSelected
-            ) {
-                Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    var expanded by remember { mutableStateOf(false) }
                     IconButton(
-                        onClick = onDeleteAll
+                        onClick = { expanded = !expanded }
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Delete,
-                            contentDescription = null
+                            painter = painterResource(R.drawable.ic_sort),
+                            contentDescription = stringResource(R.string.sort_by)
                         )
                     }
-
-                    IconButton(
-                        onClick = {
-                            if (isFilesSelected) onClearFilesSelected()
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Deselect,
-                            contentDescription = null
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    VerticalDivider(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(vertical = 12.dp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    SortByDropdownMenu(
+                        expanded = expanded,
+                        onClose = { expanded = false },
+                        enums = supportedSortByEnums,
+                        currentEnum = sortByEnum,
+                        onEnumChanged = onSortByChanged,
+                        isAscending = isAscending,
+                        onToggleSortOrder = onToggleSortOrder
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.width(6.dp))
-
-            ImportFileButton(
-                extension = "zip",
-                targetDir = shadersDir,
-                submitError = submitError,
-                onImported = refresh
-            )
-
-            IconTextButton(
-                onClick = swapToDownload,
-                imageVector = Icons.Default.Download,
-                text = stringResource(R.string.generic_download)
-            )
-
-            IconButton(
-                onClick = refresh
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = stringResource(R.string.generic_refresh)
+                SimpleTextInputField(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 4.dp),
+                    value = nameFilter,
+                    onValueChange = { onNameFilterChange(it) },
+                    hint = {
+                        Text(
+                            text = stringResource(R.string.generic_search),
+                            style = TextStyle(color = LocalContentColor.current).copy(fontSize = 12.sp)
+                        )
+                    },
+                    color = inputFieldColor,
+                    contentColor = inputFieldContentColor,
+                    singleLine = true
                 )
+
+                AnimatedVisibility(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    visible = isFilesSelected
+                ) {
+                    Row {
+                        IconButton(
+                            onClick = onDeleteAll
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_delete_outlined),
+                                contentDescription = null
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onSelectAll
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_select_all),
+                                contentDescription = null
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (isFilesSelected) onClearFilesSelected()
+                            }
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_deselect),
+                                contentDescription = null
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        VerticalDivider(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(vertical = 12.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        )
+                    }
+                }
+
+                val scrollState = rememberScrollState()
+                LaunchedEffect(Unit) {
+                    scrollState.scrollTo(scrollState.maxValue)
+                }
+                Row(
+                    modifier = Modifier
+                        .fadeEdge(
+                            state = scrollState,
+                            length = 32.dp,
+                            direction = EdgeDirection.Horizontal
+                        )
+                        .widthIn(max = this@BoxWithConstraints.maxWidth / 2)
+                        .horizontalScroll(scrollState),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    val taskBuilder = rememberMultipleUriImportTaskBuilder(
+                        id = "ContentManager.Shaders.Import",
+                        targetDir = shadersDir,
+                        checkExtension = listOf("zip"),
+                        submitError = submitError,
+                        onImported = refresh
+                    )
+                    ImportMultipleFileButton(
+                        extension = "zip",
+                        progressUris = { uris ->
+                            TaskSystem.submitTask(
+                                taskBuilder(uris)
+                            )
+                        }
+                    )
+
+                    IconTextButton(
+                        onClick = swapToDownload,
+                        painter = painterResource(R.drawable.ic_download_2_filled),
+                        text = stringResource(R.string.generic_download)
+                    )
+
+                    IconButton(
+                        onClick = refresh
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_refresh),
+                            contentDescription = stringResource(R.string.generic_refresh)
+                        )
+                    }
+                }
             }
         }
-
-        HorizontalDivider(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.onSurface
-        )
     }
 }
 
@@ -408,19 +573,21 @@ private fun ShadersActionsHeader(
 private fun ShadersList(
     modifier: Modifier = Modifier,
     shadersList: List<ShaderPackInfo>?,
-    selectedFiles: List<File>,
-    removeFromSelected: (File) -> Unit,
-    addToSelected: (File) -> Unit,
-    itemColor: Color,
-    itemContentColor: Color,
+    selectedPacks: List<ShaderPackInfo>,
+    removeFromSelected: (ShaderPackInfo) -> Unit,
+    addToSelected: (ShaderPackInfo) -> Unit,
     updateOperation: (ShaderOperation) -> Unit
 ) {
     shadersList?.let { list ->
-        //如果列表是空的，则是由搜索导致的
         if (list.isNotEmpty()) {
+            val scrollState = rememberLazyListState()
             LazyColumn(
-                modifier = modifier,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                modifier = modifier.nonInteractiveScrollbar(
+                    state = scrollState.scrollIndicatorState!!,
+                    orientation = Orientation.Vertical,
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                state = scrollState,
             ) {
                 items(list) { info ->
                     ShaderPackItem(
@@ -428,19 +595,26 @@ private fun ShadersList(
                             .fillMaxWidth()
                             .padding(vertical = 6.dp),
                         shaderPackInfo = info,
-                        selected = selectedFiles.contains(info.file),
+                        selected = selectedPacks.contains(info),
                         onClick = {
-                            if (selectedFiles.contains(info.file)) {
-                                removeFromSelected(info.file)
+                            if (selectedPacks.contains(info)) {
+                                removeFromSelected(info)
                             } else {
-                                addToSelected(info.file)
+                                addToSelected(info)
                             }
                         },
-                        updateOperation = updateOperation,
-                        itemColor = itemColor,
-                        itemContentColor = itemContentColor
+                        updateOperation = updateOperation
                     )
                 }
+            }
+        } else {
+            //如果列表是空的，则是由搜索导致的
+            //展示“无匹配项”文本
+            Box(modifier = Modifier.fillMaxSize()) {
+                ScalingLabel(
+                    modifier = Modifier.align(Alignment.Center),
+                    text = stringResource(R.string.generic_no_matching_items)
+                )
             }
         }
     } ?: run {
@@ -461,11 +635,10 @@ private fun ShaderPackItem(
     selected: Boolean,
     onClick: () -> Unit = {},
     updateOperation: (ShaderOperation) -> Unit,
-    itemColor: Color,
-    itemContentColor: Color,
+    itemColor: Color = itemColor(),
+    itemContentColor: Color = onItemColor(),
     borderColor: Color = MaterialTheme.colorScheme.primary,
     shape: Shape = MaterialTheme.shapes.large,
-    shadowElevation: Dp = 1.dp
 ) {
     val borderWidth by animateDpAsState(
         if (selected) 2.dp
@@ -489,7 +662,6 @@ private fun ShaderPackItem(
         shape = shape,
         color = itemColor,
         contentColor = itemContentColor,
-        shadowElevation = shadowElevation
     ) {
         Row(
             modifier = Modifier.padding(all = 8.dp),
@@ -554,7 +726,7 @@ private fun ShadersOperationMenu(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                imageVector = Icons.Default.MoreHoriz,
+                painter = painterResource(R.drawable.ic_more_horiz),
                 contentDescription = stringResource(R.string.generic_more)
             )
         }
@@ -570,7 +742,7 @@ private fun ShadersOperationMenu(
                 leadingIcon = {
                     Icon(
                         modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Filled.Edit,
+                        painter = painterResource(R.drawable.ic_edit_filled),
                         contentDescription = stringResource(R.string.generic_rename)
                     )
                 },
@@ -584,7 +756,7 @@ private fun ShadersOperationMenu(
                 leadingIcon = {
                     Icon(
                         modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Filled.Delete,
+                        painter = painterResource(R.drawable.ic_delete_filled),
                         contentDescription = stringResource(R.string.generic_delete)
                     )
                 },

@@ -1,7 +1,28 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.bridge;
 
 import android.content.Context;
 
+import androidx.annotation.Keep;
+
+@Keep
 public final class ZLBridge {
     //AWT
     public static final int EVENT_TYPE_CHAR = 1000;
@@ -38,29 +59,42 @@ public final class ZLBridge {
     }
 
     //Game
-    public static native void initializeGameExitHook();
-    public static native void setupExitMethod(Context context);
+    @Keep public static native void initializeGameExitHook();
+    @Keep public static native void setupExitMethod(Context context);
 
     //Launch
-    public static native void setLdLibraryPath(String ldLibraryPath);
-    public static native boolean dlopen(String libPath);
+    @Keep public static native void setLdLibraryPath(String ldLibraryPath);
+    @Keep public static native boolean dlopen(String libPath);
 
     //Render
-    public static native void setupBridgeWindow(Object surface);
-    public static native void releaseBridgeWindow();
-    public static native void moveWindow(int xOffset, int yOffset);
-    public static native int[] renderAWTScreenFrame();
+    @Keep public static native void setupBridgeWindow(Object surface);
+    @Keep public static native void releaseBridgeWindow();
+    @Keep public static native void moveWindow(int xOffset, int yOffset);
+    @Keep public static native int[] renderAWTScreenFrame();
 
     //Input
-    public static native void sendInputData(int type, int i1, int i2, int i3, int i4);
-    public static native void clipboardReceived(String data, String mimeTypeSub);
+    @Keep public static native void sendInputData(int type, int i1, int i2, int i3, int i4);
+    @Keep public static native void clipboardReceived(String data, String mimeTypeSub);
 
     //Utils
-    public static native int chdir(String path);
+    @Keep public static native int chdir(String path);
+
+    //Narrator (flite)
+    /**
+     * 返回当前（Dalvik/ART）JavaVM 指针，供游戏 JVM 侧原生代码经环境变量 attach 回安卓运行时
+     */
+    @Keep
+    public static native long getJavaVMPointer();
+
+    /**
+     * 为对象创建全局引用并以十六进制字符串返回其地址，配合 {@link #getJavaVMPointer()} 注入环境变量
+     */
+    @Keep
+    public static native String jObjectToString(Object object);
 
     static {
-        System.loadLibrary("exithook");
-        System.loadLibrary("pojavexec");
-        System.loadLibrary("pojavexec_awt");
+        NativeLibraryLoader.loadExitHookLib();
+        NativeLibraryLoader.loadPojavLib();
+        NativeLibraryLoader.loadPojavAWTLib();
     }
 }

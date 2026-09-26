@@ -1,7 +1,24 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.notification
 
 import android.Manifest
-import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -18,9 +35,9 @@ object NotificationManager {
     /**
      * 初始化通知，初始化通知渠道（频道）
      */
-    fun initManager(activity: Activity) {
+    fun initManager(context: Context) {
         NotificationChannelData.entries.forEach { data ->
-            createNotificationChannel(activity, data)
+            createNotificationChannel(context, data)
         }
     }
 
@@ -41,12 +58,13 @@ object NotificationManager {
         }
     }
 
-    private fun createNotificationChannel(activity: Activity, channelData: NotificationChannelData) {
-        val manager = activity.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(channelData.channelId, activity.getString(channelData.channelName), channelData.level).apply {
-            channelData.channelDescription?.let { desRes ->
-                description = activity.getString(desRes)
+    fun createNotificationChannel(context: Context, channelData: NotificationChannelData) {
+        val manager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        val channel = NotificationChannel(channelData.channelId, channelData.channelName(context), channelData.level).apply {
+            channelData.channelDescription?.invoke(context)?.let { desc ->
+                description = desc
             }
+            setShowBadge(channelData.showBadge)
         }
         manager.createNotificationChannel(channel)
     }

@@ -1,12 +1,32 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.coroutine
 
+import com.movtery.zalithlauncher.keepalive.TaskKeepAlive
+import com.movtery.zalithlauncher.utils.network.isInterruptedIOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
@@ -14,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap
 object TaskSystem {
     private val scope = CoroutineScope(Dispatchers.Default)
     private val _tasksFlow: MutableStateFlow<List<Task>> = MutableStateFlow(emptyList())
-    val tasksFlow: StateFlow<List<Task>> = _tasksFlow
+    val tasksFlow = _tasksFlow.asStateFlow()
 
     private val allJobs = ConcurrentHashMap<String, Job>()
     private val allListeners = ConcurrentHashMap<String, () -> Unit>()
@@ -25,20 +45,29 @@ object TaskSystem {
     fun submitTask(task: Task) {
         if (containsTask(task)) return
         addTask(task)
+        //持有保活，避免启动器切至后台后任务被系统中断
+        TaskKeepAlive.acquire()
 
         allJobs[task.id] = scope.launch(task.dispatcher) {
             try {
-                task.taskState = TaskState.RUNNING
+                task.updateStage(TaskStage.RUNNING)
                 task.task(this@launch, task)
-                task.taskState = TaskState.COMPLETED
+                task.updateStage(TaskStage.COMPLETED)
             } catch (th: Throwable) {
-                if (th is CancellationException) return@launch
+                if (th is CancellationException || th.isInterruptedIOException()) return@launch
                 task.onError(th)
             } finally {
                 task.onFinally()
             }
         }.also { job ->
-            job.invokeOnCompletion { onTaskEnded(task) }
+            job.invokeOnCompletion {
+                try {
+                    onTaskEnded(task)
+                } finally {
+                    //确保保活一定被释放，避免任务异常导致前台服务无法停止
+                    TaskKeepAlive.release()
+                }
+            }
         }
     }
 
@@ -117,6 +146,7 @@ object TaskSystem {
         _tasksFlow.update { emptyList() }
         allJobs.clear()
         allListeners.clear()
+        TaskKeepAlive.reset()
     }
 
     private fun addTask(task: Task) {

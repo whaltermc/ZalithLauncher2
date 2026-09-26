@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.game
 
 import com.google.gson.JsonObject
@@ -7,9 +25,11 @@ import com.movtery.zalithlauncher.game.download.game.models.toLaunchForInfo
 import com.movtery.zalithlauncher.utils.GSON
 import com.movtery.zalithlauncher.utils.json.merge
 import com.movtery.zalithlauncher.utils.json.safeGetMember
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.string.isBiggerTo
 import java.io.File
+
+private const val TAG = "GameJsonMerger"
 
 const val GAME_JSON_MERGER_ID = "GameJsonMerger"
 
@@ -24,15 +44,19 @@ fun mergeGameJson(
     forgeFolder: File? = null,
     neoForgeFolder: File? = null,
     fabricFolder: File? = null,
-    quiltFolder: File? = null
+    legacyFabricFolder: File? = null,
+    quiltFolder: File? = null,
+    cleanroomFolder: File? = null
 ) {
-    lInfo(
+    Logger.info(TAG,
         "Start merge version json, output: $outputFolder, Minecraft: $clientFolder\n" +
                 (if (optiFineFolder != null) "，${ModLoader.OPTIFINE.displayName}: $optiFineFolder" else "") +
                 (if (forgeFolder != null) "，${ModLoader.FORGE.displayName}: $forgeFolder" else "") +
                 (if (neoForgeFolder != null) "，${ModLoader.NEOFORGE.displayName}: $neoForgeFolder" else "") +
                 (if (fabricFolder != null) "，${ModLoader.FABRIC.displayName}: $fabricFolder" else "") +
-                (if (quiltFolder != null) "，${ModLoader.QUILT.displayName}: $quiltFolder" else "")
+                (if (legacyFabricFolder != null) "，${ModLoader.LEGACY_FABRIC.displayName}: $legacyFabricFolder" else "") +
+                (if (quiltFolder != null) "，${ModLoader.QUILT.displayName}: $quiltFolder" else "") +
+                (if (cleanroomFolder != null) "，${ModLoader.CLEANROOM.displayName}: $cleanroomFolder" else "")
     )
 
     outputFolder.mkdirs()
@@ -47,7 +71,9 @@ fun mergeGameJson(
     val forgeJsonPath = forgeFolder.gameFileOrNull("json")
     val neoForgeJsonPath = neoForgeFolder.gameFileOrNull("json")
     val fabricJsonPath = fabricFolder.gameFileOrNull("json")
+    val legacyFabricJsonPath = legacyFabricFolder.gameFileOrNull("json")
     val quiltJsonPath = quiltFolder.gameFileOrNull("json")
+    val cleanroomJsonPath = cleanroomFolder.gameFileOrNull("json")
 
     //读取和验证 Json
     val minecraftJson = minecraftJsonPath.getJsonOrNull("Minecraft")!!
@@ -56,7 +82,9 @@ fun mergeGameJson(
     val forgeJson = forgeJsonPath.getJsonOrNull(ModLoader.FORGE.displayName)
     val neoForgeJson = neoForgeJsonPath.getJsonOrNull(ModLoader.NEOFORGE.displayName)
     val fabricJson = fabricJsonPath.getJsonOrNull(ModLoader.FABRIC.displayName)
+    val legacyFabricJson = legacyFabricJsonPath.getJsonOrNull(ModLoader.LEGACY_FABRIC.displayName)
     val quiltJson = quiltJsonPath.getJsonOrNull(ModLoader.FABRIC.displayName)
+    val cleanroomJson = cleanroomJsonPath.getJsonOrNull(ModLoader.CLEANROOM.displayName)
 
     //处理 minecraftArguments
     val allArgs = listOfNotNull(
@@ -64,6 +92,7 @@ fun mergeGameJson(
         optiFineJson?.safeGetMinecraftArguments(),
         forgeJson?.safeGetMinecraftArguments(),
         neoForgeJson?.safeGetMinecraftArguments(),
+        cleanroomJson?.safeGetMinecraftArguments()
         //Fabric、Quilt没有这样的参数
     ).joinToString(" ")
 
@@ -75,7 +104,13 @@ fun mergeGameJson(
     // ----------------------------------------------------------
 
     val outputJson = minecraftJson.deepCopy()
-    listOfNotNull(optiFineJson, forgeJson, neoForgeJson, fabricJson, quiltJson).forEach { json ->
+    listOfNotNull(
+        optiFineJson,
+        forgeJson, neoForgeJson,
+        fabricJson, quiltJson,
+        legacyFabricJson,
+        cleanroomJson
+    ).forEach { json ->
         json.remove("releaseTime")
         json.remove("time")
         outputJson.merge(json)
@@ -103,7 +138,11 @@ fun mergeGameJson(
     if (minecraftJar != outputJar) {
         val outputJarFile = File(outputJar)
         if (outputJarFile.exists()) outputJarFile.delete()
-        File(minecraftJar).copyTo(File(outputJar))
+
+        val originalJarFile = File(minecraftJar)
+        if (originalJarFile.exists()) {
+            originalJarFile.copyTo(outputJarFile)
+        }
     }
 }
 

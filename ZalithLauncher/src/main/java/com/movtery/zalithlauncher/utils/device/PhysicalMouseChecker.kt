@@ -1,10 +1,30 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.utils.device
 
 import android.app.Activity
 import android.content.Context
 import android.hardware.input.InputManager
 import android.view.InputDevice
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
+import com.movtery.zalithlauncher.utils.logging.Logger
+
+private const val TAG = "PhysicalMouseChecker"
 
 object PhysicalMouseChecker {
     /**
@@ -16,23 +36,23 @@ object PhysicalMouseChecker {
     fun initChecker(activity: Activity) {
         //粗检测，因为启动软件前可能已经连接实体鼠标了
         physicalMouseConnected = isPhysicalMouseConnected()
-        lInfo("Initialization complete, physical mouse connection status: $physicalMouseConnected")
+        Logger.info(TAG, "Initialization complete, physical mouse connection status: $physicalMouseConnected")
 
         val listener = object : InputManager.InputDeviceListener {
             override fun onInputDeviceAdded(deviceId: Int) {
                 if (deviceId.isMouseId()) {
-                    lInfo("Physical mouse connected, deviceId: $deviceId")
+                    Logger.info(TAG, "Physical mouse connected, deviceId: $deviceId")
                     physicalMouseConnected = true
                 }
             }
 
             override fun onInputDeviceRemoved(deviceId: Int) {
                 if (deviceId.isMouseId()) {
-                    lInfo("Physical mouse disconnected, deviceId: $deviceId")
+                    Logger.info(TAG, "Physical mouse disconnected, deviceId: $deviceId")
                     physicalMouseConnected = false
                 } else {
                     physicalMouseConnected = isPhysicalMouseConnected()
-                    lInfo("Fallback check for physical mouse connection status: $physicalMouseConnected")
+                    Logger.info(TAG, "Fallback check for physical mouse connection status: $physicalMouseConnected")
                 }
             }
 

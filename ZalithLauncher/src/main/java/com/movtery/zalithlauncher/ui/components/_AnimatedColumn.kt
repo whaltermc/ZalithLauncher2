@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
@@ -7,10 +25,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -30,11 +51,13 @@ fun AnimatedColumn(
     baseDelay: Int = 0,
     delayIncrement: Int = 50,
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(12.dp),
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
     content: @Composable AnimatedColumnScope.(ColumnScope) -> Unit
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = verticalArrangement
+        verticalArrangement = verticalArrangement,
+        horizontalAlignment = horizontalAlignment
     ) {
         AnimatedColumnScopeImpl(isVisible, baseDelay, delayIncrement).content(this@Column)
     }
@@ -100,6 +123,7 @@ private class AnimatedColumnScopeImpl(
 @Composable
 fun AnimatedLazyColumn(
     modifier: Modifier = Modifier,
+    state: LazyListState = rememberLazyListState(),
     isVisible: Boolean,
     baseDelay: Int = 0,
     delayIncrement: Int = 50,
@@ -112,6 +136,7 @@ fun AnimatedLazyColumn(
     }
     LazyColumn(
         modifier = modifier,
+        state = state,
         verticalArrangement = verticalArrangement,
         contentPadding = contentPadding
     ) {

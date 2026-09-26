@@ -1,9 +1,30 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.versions
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -16,31 +37,25 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.outlined.CopyAll
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RichTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.nonInteractiveScrollbar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,9 +68,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
@@ -65,15 +82,22 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation3.runtime.NavKey
 import coil3.compose.AsyncImage
 import com.movtery.zalithlauncher.R
-import com.movtery.zalithlauncher.game.download.assets.install.unpackSaveZip
+import com.movtery.zalithlauncher.context.COPY_LABEL_SAVE_SEED
+import com.movtery.zalithlauncher.coroutine.TaskSystem
 import com.movtery.zalithlauncher.game.version.installed.Version
 import com.movtery.zalithlauncher.game.version.installed.VersionFolders
 import com.movtery.zalithlauncher.game.version.installed.VersionInfo
+import com.movtery.zalithlauncher.game.version.saves.SaveData
+import com.movtery.zalithlauncher.game.version.saves.isCompatible
+import com.movtery.zalithlauncher.game.version.saves.parseLevelDatFile
+import com.movtery.zalithlauncher.game.version.saves.unpackSaveZip
+import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.ui.base.BaseScreen
+import com.movtery.zalithlauncher.ui.components.CardTitleLayout
 import com.movtery.zalithlauncher.ui.components.ContentCheckBox
+import com.movtery.zalithlauncher.ui.components.EdgeDirection
 import com.movtery.zalithlauncher.ui.components.IconTextButton
 import com.movtery.zalithlauncher.ui.components.LittleTextLabel
 import com.movtery.zalithlauncher.ui.components.ProgressDialog
@@ -81,26 +105,28 @@ import com.movtery.zalithlauncher.ui.components.ScalingLabel
 import com.movtery.zalithlauncher.ui.components.SimpleAlertDialog
 import com.movtery.zalithlauncher.ui.components.SimpleTextInputField
 import com.movtery.zalithlauncher.ui.components.TooltipIconButton
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
+import com.movtery.zalithlauncher.ui.components.fadeEdge
 import com.movtery.zalithlauncher.ui.screens.NestedNavKey
 import com.movtery.zalithlauncher.ui.screens.NormalNavKey
-import com.movtery.zalithlauncher.ui.screens.content.elements.ImportFileButton
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
+import com.movtery.zalithlauncher.ui.screens.content.elements.ImportMultipleFileButton
+import com.movtery.zalithlauncher.ui.screens.content.elements.SortByDropdownMenu
+import com.movtery.zalithlauncher.ui.screens.content.elements.SortByEnum
+import com.movtery.zalithlauncher.ui.screens.content.elements.rememberMultipleUriImportTaskBuilder
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.FileNameInputDialog
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.LoadingState
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.MinecraftColorTextNormal
-import com.movtery.zalithlauncher.ui.screens.content.versions.elements.SaveData
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.SavesFilter
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.SavesOperation
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.filterSaves
-import com.movtery.zalithlauncher.ui.screens.content.versions.elements.isCompatible
-import com.movtery.zalithlauncher.ui.screens.content.versions.elements.parseLevelDatFile
-import com.movtery.zalithlauncher.ui.screens.content.versions.layouts.VersionSettingsBackground
+import com.movtery.zalithlauncher.ui.screens.content.versions.layouts.VersionChunkBackground
+import com.movtery.zalithlauncher.ui.theme.itemColor
+import com.movtery.zalithlauncher.ui.theme.onItemColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 import com.movtery.zalithlauncher.utils.animation.swapAnimateDpAsState
 import com.movtery.zalithlauncher.utils.copyText
 import com.movtery.zalithlauncher.utils.formatDate
 import com.movtery.zalithlauncher.viewmodel.ErrorViewModel
-import com.movtery.zalithlauncher.viewmodel.LaunchGameViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -110,6 +136,8 @@ import kotlinx.coroutines.withContext
 import org.apache.commons.io.FileUtils
 import java.io.File
 import java.util.Date
+import kotlin.time.DurationUnit
+import kotlin.time.toDuration
 
 private class SavesManageViewModel(
     val minecraftVersion: String,
@@ -121,6 +149,10 @@ private class SavesManageViewModel(
     var allSaves by mutableStateOf<List<SaveData>>(emptyList())
         private set
     var filteredSaves by mutableStateOf<List<SaveData>?>(null)
+        private set
+    var sortByEnum by mutableStateOf(SortByEnum.Name)
+        private set
+    var isAscending by mutableStateOf(true)
         private set
 
     var savesState by mutableStateOf<LoadingState>(LoadingState.Loading)
@@ -142,7 +174,9 @@ private class SavesManageViewModel(
                             //解析存档 level.dat，读取必要数据
                             val data = parseLevelDatFile(
                                 saveFile = dir,
-                                levelDatFile = File(dir, "level.dat")
+                                levelDatFile = File(dir, "level.dat"),
+                                worldGenDatFile = File(dir, "data/minecraft/world_gen_settings.dat")
+                                    .takeIf { it.isFile && it.exists() }
                             )
                             tempList.add(data)
                         }
@@ -167,8 +201,41 @@ private class SavesManageViewModel(
         filterSaves()
     }
 
+    fun updateSortBy(sortByEnum: SortByEnum) {
+        this.sortByEnum = sortByEnum
+        filterSaves()
+    }
+
+    fun updateSortOrder() {
+        this.isAscending = !this.isAscending
+        filterSaves()
+    }
+
+    val supportedSortByEnums = listOf(
+        SortByEnum.Name, SortByEnum.FileName, SortByEnum.LastPlayed
+    )
+
     private fun filterSaves() {
-        filteredSaves = allSaves.takeIf { it.isNotEmpty() }?.filterSaves(minecraftVersion, savesFilter)
+        filteredSaves = allSaves
+            .takeIf { it.isNotEmpty() }
+            ?.filterSaves(minecraftVersion, savesFilter)
+            ?.sortedWith { o1, o2 ->
+                val file1 = o1.saveFile
+                val file2 = o2.saveFile
+                val lastPlayed1 = o1.lastPlayed ?: file1.lastModified()
+                val lastPlayed2 = o2.lastPlayed ?: file2.lastModified()
+                val value = when (sortByEnum) {
+                    SortByEnum.Name -> (o1.levelName ?: file1.name).compareTo(o2.levelName ?: file2.name)
+                    SortByEnum.FileName -> file1.name.compareTo(file2.name)
+                    SortByEnum.LastPlayed -> lastPlayed2.compareTo(lastPlayed1)
+                    else -> error("This sorting method is not supported: $sortByEnum")
+                }
+                if (isAscending) {
+                    value
+                } else {
+                    -value
+                }
+            }
     }
 }
 
@@ -186,12 +253,13 @@ private fun rememberSavesManageViewModel(
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SavesManagerScreen(
-    mainScreenKey: NavKey?,
-    versionsScreenKey: NavKey?,
-    launchGameViewModel: LaunchGameViewModel,
+    mainScreenKey: TitledNavKey?,
+    versionsScreenKey: TitledNavKey?,
     version: Version,
+    onQuickPlay: (Version, String) -> Unit,
     backToMainScreen: () -> Unit,
     swapToDownload: () -> Unit,
     submitError: (ErrorViewModel.ThrowableMessage) -> Unit
@@ -201,17 +269,25 @@ fun SavesManagerScreen(
         return
     }
 
+    val savesDir = remember(version) {
+        VersionFolders.SAVES.getDir(version.getGameDir())
+    }
+    val versionInfo = remember(version) {
+        version.getVersionInfo()!!
+    }
+    val minecraftVersion = remember(versionInfo) {
+        versionInfo.minecraftVersion
+    }
+    val quickPlay = remember(versionInfo) {
+        versionInfo.quickPlay
+    }
+
     BaseScreen(
         levels1 = listOf(
             Pair(NestedNavKey.VersionSettings::class.java, mainScreenKey)
         ),
         Triple(NormalNavKey.Versions.SavesManager, versionsScreenKey, false),
     ) { isVisible ->
-        val versionInfo = version.getVersionInfo()!!
-        val minecraftVersion = versionInfo.minecraftVersion
-        val quickPlay = versionInfo.quickPlay
-        val savesDir = File(version.getGameDir(), VersionFolders.SAVES.folderName)
-
         val viewModel = rememberSavesManageViewModel(minecraftVersion, savesDir, version)
 
         val yOffset by swapAnimateDpAsState(
@@ -219,7 +295,7 @@ fun SavesManagerScreen(
             swapIn = isVisible
         )
 
-        VersionSettingsBackground(
+        VersionChunkBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(all = 12.dp)
@@ -230,9 +306,6 @@ fun SavesManagerScreen(
 
             when (viewModel.savesState) {
                 is LoadingState.None -> {
-                    val itemColor = itemLayoutColor()
-                    val itemContentColor = MaterialTheme.colorScheme.onSurface
-
                     var savesOperation by remember { mutableStateOf<SavesOperation>(SavesOperation.None) }
                     fun runProgress(task: () -> Unit) {
                         operationScope.launch(Dispatchers.IO) {
@@ -247,10 +320,7 @@ fun SavesManagerScreen(
                         savesDir = savesDir,
                         updateOperation = { savesOperation = it },
                         quickPlay = { saveName ->
-                            launchGameViewModel.quickLaunch(
-                                version = version,
-                                saveName = saveName
-                            )
+                            onQuickPlay(version, saveName)
                         },
                         renameSave = { saveData, newName ->
                             runProgress {
@@ -271,14 +341,14 @@ fun SavesManagerScreen(
 
                     Column {
                         SavesActionsHeader(
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .padding(top = 4.dp)
-                                .fillMaxWidth(),
-                            inputFieldColor = itemColor,
-                            inputFieldContentColor = itemContentColor,
+                            modifier = Modifier.fillMaxWidth(),
                             savesFilter = viewModel.savesFilter,
                             onSavesFilterChange = { viewModel.updateFilter(it) },
+                            supportedSortByEnums = viewModel.supportedSortByEnums,
+                            sortByEnum = viewModel.sortByEnum,
+                            onSortByChanged = { viewModel.updateSortBy(it) },
+                            isAscending = viewModel.isAscending,
+                            onToggleSortOrder = { viewModel.updateSortOrder() },
                             savesDir = savesDir,
                             swapToDownload = swapToDownload,
                             refreshSaves = { viewModel.refresh() },
@@ -292,15 +362,16 @@ fun SavesManagerScreen(
                             savesList = viewModel.filteredSaves,
                             quickPlay = quickPlay,
                             minecraftVersion = minecraftVersion,
-                            itemColor = itemColor,
-                            itemContentColor = itemContentColor,
                             updateOperation = { savesOperation = it }
                         )
                     }
                 }
                 is LoadingState.Loading -> {
-                    Box(Modifier.fillMaxSize()) {
-                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LoadingIndicator()
                     }
                 }
             }
@@ -311,80 +382,134 @@ fun SavesManagerScreen(
 @Composable
 private fun SavesActionsHeader(
     modifier: Modifier,
-    inputFieldColor: Color,
-    inputFieldContentColor: Color,
     savesFilter: SavesFilter,
     onSavesFilterChange: (SavesFilter) -> Unit,
+    supportedSortByEnums: List<SortByEnum>,
+    sortByEnum: SortByEnum,
+    onSortByChanged: (SortByEnum) -> Unit,
+    isAscending: Boolean,
+    onToggleSortOrder: () -> Unit,
     savesDir: File,
     swapToDownload: () -> Unit,
     refreshSaves: () -> Unit,
-    submitError: (ErrorViewModel.ThrowableMessage) -> Unit
+    submitError: (ErrorViewModel.ThrowableMessage) -> Unit,
+    inputFieldColor: Color = itemColor(),
+    inputFieldContentColor: Color = onItemColor()
 ) {
-    Column(modifier = modifier) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
+    CardTitleLayout(modifier = modifier) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .padding(top = 4.dp)
         ) {
-            SimpleTextInputField(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 4.dp),
-                value = savesFilter.saveName,
-                onValueChange = { onSavesFilterChange(savesFilter.copy(saveName = it)) },
-                hint = {
-                    Text(
-                        text = stringResource(R.string.generic_search),
-                        style = TextStyle(color = LocalContentColor.current).copy(fontSize = 12.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    var expanded by remember { mutableStateOf(false) }
+                    IconButton(
+                        onClick = { expanded = !expanded }
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_sort),
+                            contentDescription = stringResource(R.string.sort_by)
+                        )
+                    }
+                    SortByDropdownMenu(
+                        expanded = expanded,
+                        onClose = { expanded = false },
+                        enums = supportedSortByEnums,
+                        currentEnum = sortByEnum,
+                        onEnumChanged = onSortByChanged,
+                        isAscending = isAscending,
+                        onToggleSortOrder = onToggleSortOrder
                     )
-                },
-                color = inputFieldColor,
-                contentColor = inputFieldContentColor,
-                singleLine = true
-            )
+                }
 
-            ContentCheckBox(
-                checked = savesFilter.onlyShowCompatible,
-                onCheckedChange = { onSavesFilterChange(savesFilter.copy(onlyShowCompatible = it)) }
-            ) {
-                Text(
-                    text = stringResource(R.string.manage_only_show_valid),
-                    style = MaterialTheme.typography.labelMedium
+                SimpleTextInputField(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 4.dp),
+                    value = savesFilter.saveName,
+                    onValueChange = { onSavesFilterChange(savesFilter.copy(saveName = it)) },
+                    hint = {
+                        Text(
+                            text = stringResource(R.string.generic_search),
+                            style = TextStyle(color = LocalContentColor.current).copy(fontSize = 12.sp)
+                        )
+                    },
+                    color = inputFieldColor,
+                    contentColor = inputFieldContentColor,
+                    singleLine = true
                 )
-            }
 
-            Spacer(modifier = Modifier.width(12.dp))
+                val scrollState = rememberScrollState()
+                LaunchedEffect(Unit) {
+                    scrollState.scrollTo(scrollState.maxValue)
+                }
+                Row(
+                    modifier = Modifier
+                        .fadeEdge(
+                            state = scrollState,
+                            length = 32.dp,
+                            direction = EdgeDirection.Horizontal
+                        )
+                        .widthIn(max = this@BoxWithConstraints.maxWidth / 2)
+                        .horizontalScroll(scrollState),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ContentCheckBox(
+                        checked = savesFilter.onlyShowCompatible,
+                        onCheckedChange = { onSavesFilterChange(savesFilter.copy(onlyShowCompatible = it)) }
+                    ) {
+                        Text(
+                            text = stringResource(R.string.manage_only_show_valid),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
 
-            ImportFileButton(
-                extension = "zip",
-                targetDir = savesDir,
-                errorMessage = stringResource(R.string.saves_manage_import_failed),
-                onFileCopied = { task, file ->
-                    task.updateProgress(-1f, R.string.saves_manage_import_unpacking, file.name)
-                    unpackSaveZip(file, savesDir)
-                },
-                onImported = refreshSaves,
-                submitError = submitError
-            )
+                    Spacer(modifier = Modifier.width(12.dp))
 
-            IconTextButton(
-                onClick = swapToDownload,
-                imageVector = Icons.Default.Download,
-                text = stringResource(R.string.generic_download)
-            )
+                    val taskBuilder = rememberMultipleUriImportTaskBuilder(
+                        id = "ContentManager.Saves.Import",
+                        targetDir = savesDir,
+                        checkExtension = listOf("zip"),
+                        errorMessage = stringResource(R.string.saves_manage_import_failed),
+                        submitError = submitError,
+                        onImported = refreshSaves,
+                        onFileCopied = { task, file ->
+                            task.updateProgress(-1f)
+                            task.updateMessage(androidText(
+                                R.string.saves_manage_import_unpacking, file.name
+                            ))
+                            unpackSaveZip(file, savesDir)
+                        }
+                    )
+                    ImportMultipleFileButton(
+                        extension = "zip",
+                        progressUris = { uris ->
+                            TaskSystem.submitTask(
+                                taskBuilder(uris)
+                            )
+                        }
+                    )
 
-            IconButton(
-                onClick = refreshSaves
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = stringResource(R.string.generic_refresh)
-                )
+                    IconTextButton(
+                        onClick = swapToDownload,
+                        painter = painterResource(R.drawable.ic_download_2_filled),
+                        text = stringResource(R.string.generic_download)
+                    )
+
+                    IconButton(
+                        onClick = refreshSaves
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_refresh),
+                            contentDescription = stringResource(R.string.generic_refresh)
+                        )
+                    }
+                }
             }
         }
-
-        HorizontalDivider(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.onSurface
-        )
     }
 }
 
@@ -397,30 +522,38 @@ private fun SavesList(
     savesList: List<SaveData>?,
     quickPlay: VersionInfo.QuickPlay,
     minecraftVersion: String,
-    itemColor: Color,
-    itemContentColor: Color,
     updateOperation: (SavesOperation) -> Unit
 ) {
     savesList?.let { list ->
-        //如果列表是空的，则是由搜索导致的
         if (list.isNotEmpty()) {
+            val scrollState = rememberLazyListState()
             LazyColumn(
-                modifier = modifier,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                modifier = modifier.nonInteractiveScrollbar(
+                    state = scrollState.scrollIndicatorState!!,
+                    orientation = Orientation.Vertical,
+                ),
+                contentPadding = PaddingValues(all = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                state = scrollState,
             ) {
                 items(list) { saveData ->
                     SaveItemLayout(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         saveData = saveData,
                         quickPlay = quickPlay,
                         minecraftVersion = minecraftVersion,
-                        updateOperation = updateOperation,
-                        itemColor = itemColor,
-                        itemContentColor = itemContentColor
+                        updateOperation = updateOperation
                     )
                 }
+            }
+        } else {
+            //如果列表是空的，则是由搜索导致的
+            //展示“无匹配项”文本
+            Box(modifier = Modifier.fillMaxSize()) {
+                ScalingLabel(
+                    modifier = Modifier.align(Alignment.Center),
+                    text = stringResource(R.string.generic_no_matching_items)
+                )
             }
         }
     } ?: run {
@@ -447,9 +580,9 @@ private fun SaveItemLayout(
     minecraftVersion: String,
     onClick: () -> Unit = {},
     updateOperation: (SavesOperation) -> Unit = {},
-    itemColor: Color,
-    itemContentColor: Color,
-    shadowElevation: Dp = 1.dp
+    shape: Shape = MaterialTheme.shapes.large,
+    itemColor: Color = itemColor(),
+    itemContentColor: Color = onItemColor(),
 ) {
     //存档是否与当前 MC 版本兼容
     val isCompatible = saveData.isCompatible(minecraftVersion)
@@ -464,10 +597,9 @@ private fun SaveItemLayout(
     Surface(
         modifier = modifier.graphicsLayer(scaleY = scale.value, scaleX = scale.value),
         onClick = onClick,
-        shape = MaterialTheme.shapes.large,
+        shape = shape,
         color = itemColor,
         contentColor = itemContentColor,
-        shadowElevation = shadowElevation
     ) {
         Row(
             modifier = Modifier.padding(all = 8.dp),
@@ -531,7 +663,7 @@ private fun SaveItemLayout(
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         val timeString = formatDate(
-                            date = Date(saveData.lastPlayed),
+                            date = Date(saveData.lastPlayed ?: saveData.saveFile.lastModified()),
                             pattern = stringResource(R.string.date_format)
                         )
                         Text(
@@ -558,13 +690,13 @@ private fun SaveItemLayout(
                                 shadowElevation = 3.dp
                             ) {
                                 SaveInfoTooltip(saveData) { seed ->
-                                    copyText(null, seed, context)
+                                    copyText(COPY_LABEL_SAVE_SEED, seed, context)
                                 }
                             }
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Info,
+                            painter = painterResource(R.drawable.ic_info_outlined),
                             contentDescription = stringResource(R.string.saves_manage_info)
                         )
                     }
@@ -610,10 +742,11 @@ private fun SaveIcon(
     saveData: SaveData,
     triggerRefresh: Any? = null
 ) {
-    val context = LocalContext.current
-    val iconFile = File(saveData.saveFile, "icon.png")
+    val iconFile = remember(saveData) {
+        File(saveData.saveFile, "icon.png")
+    }
 
-    val model = remember(triggerRefresh, context) {
+    val model = remember(iconFile, triggerRefresh) {
         iconFile.takeIf { it.exists() && it.isFile } ?: R.drawable.ic_unknown_save
     }
 
@@ -667,6 +800,14 @@ private fun SaveInfoTooltip(
         if (saveData.allowCommands == true) {
             Text(text = stringResource(R.string.saves_manage_allow_commands))
         }
+        //游戏时长
+        if (saveData.playTime != null) {
+            val duration = (saveData.playTime / 20).toDuration(DurationUnit.SECONDS)
+            val playtime = duration.toComponents { days, hours, minutes, _, _ ->
+                stringResource(R.string.duration_format, days, hours, minutes)
+            }
+            Text(text = stringResource(R.string.saves_manage_playtime, playtime))
+        }
         //世界种子
         val worldSeed = saveData.worldSeed?.toString()
         Row(
@@ -689,7 +830,7 @@ private fun SaveInfoTooltip(
                 ) {
                     Icon(
                         modifier = Modifier.size(18.dp),
-                        imageVector = Icons.Outlined.CopyAll,
+                        painter = painterResource(R.drawable.ic_copy_all_outlined),
                         contentDescription = stringResource(R.string.generic_copy)
                     )
                 }
@@ -718,7 +859,7 @@ private fun SaveOperationMenu(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                imageVector = Icons.Default.MoreHoriz,
+                painter = painterResource(R.drawable.ic_more_horiz),
                 contentDescription = stringResource(R.string.generic_more)
             )
         }
@@ -743,7 +884,7 @@ private fun SaveOperationMenu(
                 leadingIcon = {
                     Icon(
                         modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Filled.PlayArrow,
+                        painter = painterResource(R.drawable.ic_play_arrow_filled),
                         contentDescription = stringResource(R.string.saves_manage_quick_play)
                     )
                 },
@@ -758,7 +899,7 @@ private fun SaveOperationMenu(
                 leadingIcon = {
                     Icon(
                         modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Filled.Edit,
+                        painter = painterResource(R.drawable.ic_edit_filled),
                         contentDescription = stringResource(R.string.generic_rename)
                     )
                 },
@@ -773,7 +914,7 @@ private fun SaveOperationMenu(
                 leadingIcon = {
                     Icon(
                         modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Filled.Save,
+                        painter = painterResource(R.drawable.ic_save_filled),
                         contentDescription = stringResource(R.string.saves_manage_backup)
                     )
                 },
@@ -787,7 +928,7 @@ private fun SaveOperationMenu(
                 leadingIcon = {
                     Icon(
                         modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Filled.Delete,
+                        painter = painterResource(R.drawable.ic_delete_filled),
                         contentDescription = stringResource(R.string.generic_delete)
                     )
                 },

@@ -1,29 +1,51 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.game.forge
 
 import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.components.jre.Jre
+import com.movtery.zalithlauncher.context.GlobalContext
 import com.movtery.zalithlauncher.coroutine.Task
-import com.movtery.zalithlauncher.game.addons.modloader.forgelike.ForgeLikeVersion
+import com.movtery.zalithlauncher.coroutine.TaskLogOutput
+import com.movtery.zalithlauncher.coroutine.withTaskLogOutput
 import com.movtery.zalithlauncher.game.download.game.GameLibDownloader
 import com.movtery.zalithlauncher.game.download.game.getLibraryPath
 import com.movtery.zalithlauncher.game.download.game.models.ForgeLikeInstallProcessor
 import com.movtery.zalithlauncher.game.download.game.models.toPath
 import com.movtery.zalithlauncher.game.download.game.parseLibraryComponents
 import com.movtery.zalithlauncher.game.download.jvm_server.runJvmRetryRuntimes
+import com.movtery.zalithlauncher.game.download.jvm_server.stopAllNonMainProcesses
 import com.movtery.zalithlauncher.game.version.download.BaseMinecraftDownloader
-import com.movtery.zalithlauncher.path.LibPath
+import com.movtery.zalithlauncher.notification.NoticeProgress
+import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.utils.GSON
 import com.movtery.zalithlauncher.utils.file.ensureDirectory
 import com.movtery.zalithlauncher.utils.file.extractEntryToFile
 import com.movtery.zalithlauncher.utils.file.extractFromZip
 import com.movtery.zalithlauncher.utils.file.readText
 import com.movtery.zalithlauncher.utils.json.parseToJson
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.string.isBiggerOrEqualTo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import org.jackhuang.hmcl.util.DigestUtils
 import java.io.File
@@ -35,6 +57,9 @@ import java.nio.file.Paths
 import java.util.jar.Attributes
 import java.util.jar.JarFile
 import java.util.zip.ZipFile
+import kotlin.io.path.name
+
+private const val TAG = "Install.ForgeLike"
 
 const val FORGE_LIKE_INSTALL_ID = "Install.ForgeLike"
 
@@ -42,16 +67,18 @@ const val FORGE_LIKE_INSTALL_ID = "Install.ForgeLike"
  * Forge Like 安装 Task
  * @param isNew 是否为新版本 Forge、NeoForge
  * @param tempFolderName 临时版本文件夹名称
+ * @param logOutputHolder 安装器持有的日志输出容器
  */
 fun getForgeLikeInstallTask(
     isNew: Boolean,
     downloader: BaseMinecraftDownloader,
-    forgeLikeVersion: ForgeLikeVersion,
+    loaderName: String,
     tempFolderName: String,
     tempInstaller: File,
     tempGameFolder: File,
     tempMinecraftDir: File,
-    inherit: String
+    inherit: String,
+    logOutputHolder: MutableStateFlow<TaskLogOutput?>
 ): Task {
     return Task.runTask(
         id = FORGE_LIKE_INSTALL_ID,
@@ -60,24 +87,24 @@ fun getForgeLikeInstallTask(
             val tempVersionJson = File(tempMinecraftDir, "versions/$tempFolderName/$tempFolderName.json")
             if (isNew) { //新版 Forge、NeoForge
                 //以 HMCL 的方式手动安装
-                installNewForgeHMCLWay(
-                    task = task,
-                    forgeLikeVersion = forgeLikeVersion,
-                    tempInstaller = tempInstaller,
-                    tempGameFolder = tempGameFolder,
-                    tempMinecraftDir = tempMinecraftDir,
-                    tempVersionJson = tempVersionJson,
-                    tempVanillaJar = tempVanillaJar
-                )
-
-//                installNewForgePCLWay(
-//                    task = task,
-//                    forgeLikeVersion = forgeLikeVersion,
-//                    tempVersionJson = tempVersionJson,
-//                    tempInstaller = tempInstaller,
-//                    tempGameFolder = tempGameFolder,
-//                    tempMinecraftDir = tempMinecraftDir
-//                )
+                withTaskLogOutput(
+                    holder = logOutputHolder,
+                    title = androidText(
+                        R.string.download_game_install_base_install,
+                        loaderName
+                    )
+                ) { output ->
+                    installNewForgeHMCLWay(
+                        task = task,
+                        loaderName = loaderName,
+                        tempInstaller = tempInstaller,
+                        tempGameFolder = tempGameFolder,
+                        tempMinecraftDir = tempMinecraftDir,
+                        tempVersionJson = tempVersionJson,
+                        tempVanillaJar = tempVanillaJar,
+                        logOutput = output
+                    )
+                }
             } else { //旧版 Forge
                 installOldForge(
                     task = task,
@@ -101,12 +128,13 @@ fun getForgeLikeInstallTask(
  */
 private suspend fun installNewForgeHMCLWay(
     task: Task,
-    forgeLikeVersion: ForgeLikeVersion,
+    loaderName: String,
     tempInstaller: File,
     tempGameFolder: File,
     tempMinecraftDir: File,
     tempVersionJson: File,
-    tempVanillaJar: File
+    tempVanillaJar: File,
+    logOutput: TaskLogOutput
 ) = withContext(Dispatchers.IO) {
     task.updateProgress(-1f)
 
@@ -118,13 +146,14 @@ private suspend fun installNewForgeHMCLWay(
         //解压版本Json
         zip.extractEntryToFile("version.json", tempVersionJson)
 
-        task.updateProgress(0.2f, R.string.download_game_install_forgelike_preparing_mapping_file, forgeLikeVersion.loaderName)
+        task.updateProgress(0.2f)
+        task.updateMessage(androidText(R.string.download_game_install_forgelike_preparing_mapping_file, loaderName))
         installProfile["data"].asJsonObject?.let { data ->
             for ((key, value) in data.entrySet()) {
                 if (value.isJsonObject) {
                     val client = value.asJsonObject["client"]
                     if (client != null && client.isJsonPrimitive) {
-                        lInfo("Attempting to recognize mapping: ${client.asString}")
+                        Logger.info(TAG, "Attempting to recognize mapping: ${client.asString}")
                         parseLiteral(
                             baseDir = tempMinecraftDir,
                             literal = client.asString,
@@ -135,12 +164,12 @@ private suspend fun installNewForgeHMCLWay(
                                     .removePrefix("/")
                                     .replace("\\", "/")
                                 zip.extractEntryToFile(item, dest.toFile())
-                                lInfo("Extracting item $item to directory $dest")
+                                Logger.info(TAG, "Extracting item $item to directory $dest")
                                 dest.toString()
                             }
                         )?.let {
                             vars[key] = it
-                            lInfo("Recognized as mapping $key - $it")
+                            Logger.info(TAG, "Recognized as mapping $key - $it")
                         }
                     }
                 }
@@ -150,7 +179,10 @@ private suspend fun installNewForgeHMCLWay(
         installProfile
     }
 
-    task.updateProgress(1f, R.string.download_game_install_forgelike_preparing_mapping_file, forgeLikeVersion.loaderName)
+    task.updateProgress(1f)
+    task.updateMessage(androidText(
+        R.string.download_game_install_forgelike_preparing_mapping_file, loaderName
+    ))
 
     vars["SIDE"] = "client"
     vars["MINECRAFT_JAR"] = tempVanillaJar.absolutePath
@@ -166,81 +198,13 @@ private suspend fun installNewForgeHMCLWay(
 
     runProcessors(
         task = task,
+        loaderName = loaderName,
         tempMinecraftDir = tempMinecraftDir,
         tempGameDir = tempGameFolder,
         processors = processors,
-        vars = vars
+        vars = vars,
+        logOutput = logOutput
     )
-}
-
-/**
- * 以 PCL2 的方式安装新版 Forge、NeoForge
- * [Reference PCL2](https://github.com/Hex-Dragon/PCL2/blob/bf6fa718c89e8615b947d1c639ed16a72ce125e0/Plain%20Craft%20Launcher%202/Pages/PageDownload/ModDownloadLib.vb#L1412-L1479)
- */
-@Suppress("unused")
-private suspend fun installNewForgePCLWay(
-    task: Task,
-    forgeLikeVersion: ForgeLikeVersion,
-    tempVersionJson: File,
-    tempInstaller: File,
-    tempGameFolder: File,
-    tempMinecraftDir: File
-) {
-    //记录当前文件夹列表，稍后用于检测差异
-    val dirsBeforeInstall = File(tempMinecraftDir, "versions").listFiles { file -> file.isDirectory } ?: emptyArray()
-    val beforeLog = dirsBeforeInstall.joinToString(", ") { it.name }
-    lInfo("All version folders before installation: $beforeLog")
-
-    task.updateProgress(-1f, R.string.download_game_install_base_installing, forgeLikeVersion.loaderName)
-    runJvmRetryRuntimes(
-        FORGE_LIKE_INSTALL_ID,
-        jvmArgs = "-javaagent:" +
-                //使用 AWTBlockerAgent 禁用 AWT GUI 类调用
-                LibPath.AWT_BLOCKER_AGENT.absolutePath + " " +
-                "-cp " +
-                LibPath.FORGE_INSTALLER.absolutePath + ":" +
-                tempInstaller.absolutePath + " " +
-                "com.bangbang93.ForgeInstaller" + " " +
-                tempMinecraftDir.absolutePath,
-        prefixArgs = { jre ->
-            if (jre.majorVersion >= 9) {
-                "--add-exports cpw.mods.bootstraplauncher/cpw.mods.bootstraplauncher=ALL-UNNAMED"
-            } else {
-                null
-            }
-        },
-        jre = Jre.JRE_8,
-        userHome = tempGameFolder.absolutePath.trimEnd('\\')
-    )
-
-    task.updateProgress(0.9f, R.string.download_game_install_base_installing, forgeLikeVersion.loaderName)
-
-    //检测差异
-    val currentArray = File(tempMinecraftDir, "versions").listFiles { file -> file.isDirectory } ?: emptyArray()
-    val currentLog = dirsBeforeInstall.joinToString(", ") { it.name }
-    lInfo("All version folders after installation: $currentLog")
-
-    //过滤
-    val deltaArray = currentArray.filter { file ->
-        !dirsBeforeInstall.any { it.absolutePath == file.absolutePath } &&
-                //过滤非(Neo)Forge的版本文件夹，同时也考虑安装器的bug导致生成的空文件夹的情况
-                file.name.contains("forge", ignoreCase = true) && file.listFiles()?.isNotEmpty() == true
-    }
-    val filteredLog = dirsBeforeInstall.joinToString(", ") { it.name }
-    lInfo("Version folders remaining after filtering: $filteredLog")
-
-    when (deltaArray.size) {
-        1 -> {
-            //复制新增的 json 文件
-            val newJson = deltaArray[0].listFiles()?.first()!!
-            newJson.copyTo(tempVersionJson)
-            lInfo("The newly added version JSON file has been copied: ${newJson.absolutePath} -> ${tempVersionJson.absolutePath}")
-        }
-        0 -> lInfo("The newly added version folder was not found.")
-        else -> lWarning("There are multiple suspected new versions, but it's unclear: ${deltaArray.joinToString { it.name }}")
-    }
-
-    task.updateProgress(1f, null)
 }
 
 /**
@@ -266,7 +230,7 @@ private suspend fun installOldForge(
         task.updateProgress(0.5f)
 
         if (!installProfile.has("install")) {
-            lInfo("Starting the Forge installation, Legacy method A")
+            Logger.info(TAG, "Starting the Forge installation, Legacy method A")
 
             //建立 Json 文件
             val jsonVersion = zip.readText(installProfile["json"].asString.trimStart('/')).parseToJson()
@@ -279,7 +243,7 @@ private suspend fun installOldForge(
 
             null
         } else {
-            lInfo("Starting the Forge installation, Legacy method B")
+            Logger.info(TAG, "Starting the Forge installation, Legacy method B")
             val artifact = installProfile["install"].asJsonObject["path"].asString
             val jarPath = getLibraryPath(artifact, baseFolder = tempMinecraftDir.absolutePath)
 
@@ -332,10 +296,12 @@ private suspend fun installOldForge(
  */
 private suspend fun runProcessors(
     task: Task,
+    loaderName: String,
     tempMinecraftDir: File,
     tempGameDir: File,
     processors: List<ForgeLikeInstallProcessor>,
-    vars: Map<String, String>
+    vars: Map<String, String>,
+    logOutput: TaskLogOutput
 ): Unit = withContext(Dispatchers.IO) {
     //优先构建所有需要执行的命令，以便于更好的计算进度
     val commandList = processors.mapNotNull { processor ->
@@ -351,7 +317,7 @@ private suspend fun runProcessors(
                 throw IllegalArgumentException("Invalid forge installation configuration")
             }
         }.also {
-            lInfo("Parsed output mappings for ${processor.javaClass.simpleName}: ${it.entries.joinToString("\n") { entry -> "${entry.key} = ${entry.value}" }}")
+            Logger.info(TAG, "Parsed output mappings for ${processor.javaClass.simpleName}: ${it.entries.joinToString("\n") { entry -> "${entry.key} = ${entry.value}" }}")
         }
 
         val anyMissing = outputs.any { (key, expectedHash) ->
@@ -363,7 +329,7 @@ private suspend fun runProcessors(
             }
             if (actualHash != expectedHash) {
                 Files.delete(artifact)
-                lInfo("Invalid artifact removed: $artifact")
+                Logger.info(TAG, "Invalid artifact removed: $artifact")
                 true
             } else false
         }
@@ -397,29 +363,38 @@ private suspend fun runProcessors(
             )
         }.joinToString(" ")
 
-        Triple(processor, jvmArgs, outputs)
+        Triple(processor, jvmArgs, outputs.map { (key, value) -> Paths.get(key) to value })
     }
 
+    stopAllNonMainProcesses(GlobalContext)
     //正式开始执行命令
     commandList.forEachIndexed { index, (processor, jvmArgs, outputs) ->
+        val step = index + 1
+        val progress = step.toFloat() / commandList.size
+        val taskStr = outputs.joinToString(", ") { (artifact, _) -> artifact.name }
+
         runJvmRetryRuntimes(
             logId = FORGE_LIKE_INSTALL_ID,
             jvmArgs = jvmArgs,
             prefixArgs = { null },
             jre = Jre.JRE_8,
-            userHome = tempGameDir.absolutePath.trimEnd('\\')
-        ) {
-            val jarPath = processor.getJar().toPath()
-            val jarName = File(jarPath).name
+            userHome = tempGameDir.absolutePath.trimEnd('\\'),
+            postSummary = "$loaderName $taskStr ($step/${commandList.size})",
+            postProgress = NoticeProgress(commandList.size, step),
+            logOutput = logOutput,
+            start = {
+                val jarPath = processor.getJar().toPath()
 
-            val progress = index.toFloat() / commandList.size
-            task.updateProgress(progress, R.string.download_game_install_base_installing, jarName)
+                task.updateProgress(progress)
+                task.updateMessage(androidText(
+                    R.string.download_game_install_base_installing, taskStr
+                ))
 
-            lInfo("Start to run $jarPath with args: $jvmArgs")
-        }
+                Logger.info(TAG, "Start to run $jarPath with args: $jvmArgs")
+            }
+        )
 
-        for ((key, value) in outputs) {
-            val artifact = Paths.get(key)
+        for ((artifact, value) in outputs) {
             if (!Files.isRegularFile(artifact)) throw FileNotFoundException("File missing: $artifact")
 
             val code: String = Files.newInputStream(artifact).use { stream ->

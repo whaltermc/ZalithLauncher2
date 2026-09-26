@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.download.game
 
 import androidx.compose.animation.AnimatedVisibility
@@ -8,10 +26,13 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -19,14 +40,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.Autorenew
-import androidx.compose.material.icons.outlined.Clear
-import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +58,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -54,13 +68,20 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
+import com.movtery.zalithlauncher.game.addons.modloader.cleanroom.CleanroomVersion
 import com.movtery.zalithlauncher.game.addons.modloader.fabriclike.FabricLikeVersion
 import com.movtery.zalithlauncher.game.addons.modloader.forgelike.forge.ForgeVersion
 import com.movtery.zalithlauncher.game.addons.modloader.forgelike.neoforge.NeoForgeVersion
 import com.movtery.zalithlauncher.game.addons.modloader.modlike.ModVersion
 import com.movtery.zalithlauncher.game.addons.modloader.optifine.OptiFineVersion
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
+import com.movtery.zalithlauncher.setting.AllSettings
+import com.movtery.zalithlauncher.ui.AndroidStringText
+import com.movtery.zalithlauncher.ui.androidText
+import com.movtery.zalithlauncher.ui.components.influencedByBackgroundColor
 import com.movtery.zalithlauncher.ui.components.rememberMaxHeight
+import com.movtery.zalithlauncher.ui.screens.content.elements.backgroundGlass
+import com.movtery.zalithlauncher.ui.theme.cardColor
+import com.movtery.zalithlauncher.ui.theme.onCardColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 import com.movtery.zalithlauncher.utils.getTimeAgo
 
@@ -72,31 +93,9 @@ sealed interface AddonState {
     data object Loading : AddonState
     /**
      * 加载出现异常
-     * @param message 异常消息资源
-     * @param args 消息参数
+     * @param message 异常消息代理对象
      */
-    data class Error(val message: Int, val args: Array<Any>? = null): AddonState {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (javaClass != other?.javaClass) return false
-
-            other as Error
-
-            if (message != other.message) return false
-            if (args != null) {
-                if (other.args == null) return false
-                if (!args.contentEquals(other.args)) return false
-            } else if (other.args != null) return false
-
-            return true
-        }
-
-        override fun hashCode(): Int {
-            var result = message
-            result = 31 * result + (args?.contentHashCode() ?: 0)
-            return result
-        }
-    }
+    data class Error(val message: AndroidStringText): AddonState
 }
 
 /**
@@ -108,6 +107,27 @@ private fun AddonTextLayout(
     title: String,
     summary: String
 ) {
+    AddonTextLayout(
+        modifier = modifier,
+        title = title,
+        summary = {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    )
+}
+
+/**
+ * 简易 Addon 文本占位
+ */
+@Composable
+private fun AddonTextLayout(
+    modifier: Modifier = Modifier,
+    title: String,
+    summary: @Composable ColumnScope.() -> Unit,
+) {
     Column(
         modifier = modifier.padding(all = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -116,10 +136,7 @@ private fun AddonTextLayout(
             text = title,
             style = MaterialTheme.typography.titleSmall
         )
-        Text(
-            text = summary,
-            style = MaterialTheme.typography.bodySmall
-        )
+        summary()
     }
 }
 
@@ -154,8 +171,11 @@ fun <E> AddonListLayout(
     autoCollapse: Boolean = true,
     onValueChange: (E?) -> Unit = {},
     onReload: () -> Unit = {},
-    color: Color = itemLayoutColor(),
-    contentColor: Color = MaterialTheme.colorScheme.onSurface
+    shape: Shape = MaterialTheme.shapes.large,
+    influencedByBackground: Boolean = true,
+    color: Color = cardColor(influencedByBackground),
+    contentColor: Color = onCardColor(),
+    blur: Int = AllSettings.backgroundBlur.state,
 ) {
     var selectedItem by remember { mutableStateOf<E?>(null) }
 
@@ -182,12 +202,15 @@ fun <E> AddonListLayout(
 
     Surface(
         modifier = modifier,
-        shape = MaterialTheme.shapes.large,
+        shape = shape,
         color = color,
-        contentColor = contentColor,
-        shadowElevation = 1.dp
+        contentColor = contentColor
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .backgroundGlass(blur, color, influencedByBackground)
+        ) {
             AddonListHeader(
                 modifier = Modifier.fillMaxWidth(),
                 state = state,
@@ -306,7 +329,7 @@ private fun <E> AddonListHeader(
                         modifier = Modifier
                             .size(34.dp)
                             .rotate(rotation),
-                        imageVector = Icons.Rounded.ArrowDropDown,
+                        painter = painterResource(R.drawable.ic_arrow_drop_down_rounded),
                         contentDescription = stringResource(if (expanded) R.string.generic_expand else R.string.generic_collapse)
                     )
                     if (selectedItem != null) {
@@ -318,7 +341,7 @@ private fun <E> AddonListHeader(
                         ) {
                             Icon(
                                 modifier = Modifier.size(24.dp),
-                                imageVector = Icons.Outlined.Clear,
+                                painter = painterResource(R.drawable.ic_deselect),
                                 contentDescription = stringResource(R.string.generic_clear)
                             )
                         }
@@ -333,16 +356,17 @@ private fun <E> AddonListHeader(
                 )
             }
             is AddonState.Error -> {
-                val message = if (state.args != null) {
-                    stringResource(state.message, *state.args)
-                } else {
-                    stringResource(state.message)
-                }
-
                 AddonTextLayout(
                     modifier = Modifier.weight(1f),
                     title = title,
-                    summary = stringResource(R.string.download_game_addon_list_load_error, message),
+                    summary = {
+                        AndroidStringText(
+                            text = androidText(
+                                R.string.download_game_addon_list_load_error,
+                                state.message
+                            )
+                        )
+                    },
                 )
                 IconButton(
                     modifier = Modifier
@@ -351,7 +375,7 @@ private fun <E> AddonListHeader(
                     onClick = onReload
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
+                        painter = painterResource(R.drawable.ic_refresh),
                         contentDescription = stringResource(R.string.generic_refresh)
                     )
                 }
@@ -393,6 +417,51 @@ fun AddonListItem(
 }
 
 @Composable
+fun AddonWarningItem(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = influencedByBackgroundColor(
+        color = MaterialTheme.colorScheme.errorContainer,
+        enabled = true
+    ),
+    contentColor: Color = MaterialTheme.colorScheme.onErrorContainer,
+    blur: Int = AllSettings.backgroundBlur.state,
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        color = color,
+        contentColor = contentColor
+    ) {
+        Row(
+            modifier = Modifier
+                .backgroundGlass(blur, color)
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(34.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(all = 4.dp),
+                    painter = painterResource(R.drawable.ic_warning_filled),
+                    contentDescription = null
+                )
+            }
+
+            AddonTextLayout(
+                modifier = Modifier.weight(1f),
+                title = stringResource(R.string.generic_warning),
+                summary = text
+            )
+        }
+    }
+}
+
+@Composable
 fun OptiFineVersionSummary(
     optifine: OptiFineVersion,
     iconSize: Dp = 14.dp,
@@ -415,7 +484,7 @@ fun OptiFineVersionSummary(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                painter = painterResource(R.drawable.ic_package_2),
+                painter = painterResource(R.drawable.ic_package_2_outlined),
                 contentDescription = null
             )
             Text(text = typeText, style = textStyle)
@@ -428,7 +497,7 @@ fun OptiFineVersionSummary(
             ) {
                 Icon(
                     modifier = Modifier.size(iconSize),
-                    imageVector = Icons.Outlined.Autorenew,
+                    painter = painterResource(R.drawable.ic_autorenew),
                     contentDescription = null
                 )
                 Text(text = releaseDate, style = textStyle)
@@ -444,7 +513,7 @@ fun OptiFineVersionSummary(
                 optifine.forgeVersion == null -> {
                     Icon(
                         modifier = Modifier.size(iconSize),
-                        imageVector = Icons.Default.Close,
+                        painter = painterResource(R.drawable.ic_close),
                         contentDescription = null
                     )
                     Text(
@@ -455,7 +524,7 @@ fun OptiFineVersionSummary(
                 optifine.forgeVersion.isNotEmpty() -> {
                     Icon(
                         modifier = Modifier.size(iconSize),
-                        imageVector = Icons.Default.Check,
+                        painter = painterResource(R.drawable.ic_check),
                         contentDescription = null
                     )
                     Text(
@@ -486,7 +555,7 @@ fun ForgeVersionSummary(
             ) {
                 Icon(
                     modifier = Modifier.size(iconSize),
-                    imageVector = Icons.Filled.Star,
+                    painter = painterResource(R.drawable.ic_star_filled),
                     contentDescription = null
                 )
                 Text(
@@ -502,7 +571,7 @@ fun ForgeVersionSummary(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                imageVector = Icons.Outlined.Autorenew,
+                painter = painterResource(R.drawable.ic_autorenew),
                 contentDescription = null
             )
             Text(text = forgeVersion.releaseTime, style = textStyle)
@@ -533,7 +602,7 @@ fun NeoForgeSummary(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                painter = painterResource(R.drawable.ic_package_2),
+                painter = painterResource(R.drawable.ic_package_2_outlined),
                 contentDescription = null
             )
             Text(text = typeText, style = textStyle)
@@ -564,11 +633,38 @@ fun FabricLikeSummary(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                painter = painterResource(R.drawable.ic_package_2),
+                painter = painterResource(R.drawable.ic_package_2_outlined),
                 contentDescription = null
             )
             Text(text = typeText, style = textStyle)
         }
+    }
+}
+
+@Composable
+fun CleanroomSummary(
+    version: CleanroomVersion,
+    iconSize: Dp = 14.dp,
+    textStyle: TextStyle = MaterialTheme.typography.labelSmall
+) {
+    //更新时间
+    Row(
+        modifier = Modifier.alpha(alpha = 0.7f),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            modifier = Modifier.size(iconSize),
+            painter = painterResource(R.drawable.ic_autorenew),
+            contentDescription = null
+        )
+        Text(
+            text = getTimeAgo(
+                context = LocalContext.current,
+                pastInstant = version.createdAt
+            ),
+            style = textStyle
+        )
     }
 }
 
@@ -591,7 +687,7 @@ fun ModSummary(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                painter = painterResource(R.drawable.ic_package_2),
+                painter = painterResource(R.drawable.ic_package_2_outlined),
                 contentDescription = null
             )
             Text(
@@ -606,7 +702,7 @@ fun ModSummary(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                imageVector = Icons.Outlined.Autorenew,
+                painter = painterResource(R.drawable.ic_autorenew),
                 contentDescription = null
             )
             Text(

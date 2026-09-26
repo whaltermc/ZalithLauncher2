@@ -1,15 +1,35 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.mod
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.io.IOException
 import org.apache.commons.io.FileUtils
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+
+private const val TAG = "LocalMod"
 
 /** 本地模组信息 */
 class LocalMod(
@@ -43,7 +63,12 @@ class LocalMod(
     /**
      * 标记是否为非模组
      */
-    val notMod: Boolean = false
+    val notMod: Boolean = false,
+
+    /**
+     * 是否从远端获取模组信息
+     */
+    val checkRemote: Boolean = true,
 ) {
     var file by mutableStateOf(modFile)
         private set
@@ -65,11 +90,7 @@ class LocalMod(
      * 启用模组
      */
     fun enable() {
-        val currentPath = file.absolutePath
-        if (file.isEnabled()) return
-
-        val newPath = currentPath.substring(0, currentPath.length - ".disabled".length)
-        val newFile = File(newPath)
+        val newFile = enabledMod(file)
         if (!file.renameToSafely(newFile)) return
 
         file = newFile
@@ -85,7 +106,7 @@ class LocalMod(
             )
             true
         } catch (e: IOException) {
-            lWarning("Failed to rename file {$this} to $dest!", e)
+            Logger.warning(TAG, "Failed to rename file {$this} to $dest!", e)
             false
         }
     }
@@ -116,3 +137,11 @@ fun createNotMod(file: File): LocalMod = LocalMod(
     icon = null,
     notMod = true
 )
+
+fun enabledMod(file: File): File {
+    if (file.isEnabled()) return file
+
+    val currentPath = file.absolutePath
+    val newPath = currentPath.dropLast(".disabled".length)
+    return File(newPath)
+}

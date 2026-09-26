@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.installed.utils
 
 import com.google.gson.JsonArray
@@ -6,9 +24,11 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
 import com.movtery.zalithlauncher.game.version.installed.VersionInfo
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
+import com.movtery.zalithlauncher.utils.string.isNotEmptyOrBlank
 import java.io.File
+
+private const val TAG = "VersionInfoUtils"
 
 private const val VERSION_PATTERN = """(\d+\.\d+\.\d+|\d{2}w\d{2}[a-z])"""
 
@@ -19,7 +39,8 @@ private val OPTIFINE_ID_REGEX = """$VERSION_PATTERN-OptiFine""".toRegex()
 // "1.21.3-forge-53.0.23"               -> 1.21.3
 private val FORGE_REGEX = """$VERSION_PATTERN-forge""".toRegex()
 // "1.7.10-Forge10.13.4.1614-1.7.10"    -> 1.7.10
-private val FORGE_OLD_REGEX = """^$VERSION_PATTERN-Forge""".toRegex()
+// "1.7.2-10.12.2.1161-mc172"           -> 1.7.2
+private val FORGE_OLD_REGEX = """^$VERSION_PATTERN-(Forge[\d.]*)-mc\d+""".toRegex()
 // "fabric-loader-0.15.7-1.20.4"        -> 1.20.4
 // "fabric-loader-0.16.9-1.21.3"        -> 1.21.3
 private val FABRIC_REGEX = """fabric-loader-[\w.-]+-$VERSION_PATTERN""".toRegex()
@@ -55,7 +76,7 @@ fun parseJsonToVersionInfo(jsonFile: File): VersionInfo? {
         val quickPlay = runCatching {
             ensureQuickPlay(jsonObject)
         }.getOrElse { e ->
-            lWarning("Failed to parse Quick Play", e)
+            Logger.warning(TAG, "Failed to parse Quick Play", e)
             VersionInfo.QuickPlay(
                 hasQuickPlaysSupport = false,
                 isQuickPlaySingleplayer = false,
@@ -65,7 +86,7 @@ fun parseJsonToVersionInfo(jsonFile: File): VersionInfo? {
         val (versionId, loaderInfo) = detectMinecraftAndLoader(jsonObject)
         VersionInfo(versionId, quickPlay, loaderInfo)
     }.getOrElse {
-        lError("Error parsing version json", it)
+        Logger.error(TAG, "Error parsing version json", it)
         null
     }
 }
@@ -125,6 +146,13 @@ private fun extractMinecraftVersion(json: JsonObject): String {
         }
     }
 
+    //尝试识别PCL导出的整合包给的版本
+    //PCL顺手加的 [按住 W 开始思索]
+    if (json.has("clientVersion") && json.get("clientVersion").isJsonPrimitive) {
+        val clientVersion = json.get("clientVersion").asString
+        if (clientVersion.isNotEmptyOrBlank()) return clientVersion
+    }
+
     //尝试从 LaunchFor (ZL安装的版本) 获取信息
     json.getAsJsonObject("launchFor")
         ?.getAsJsonArray("infos")
@@ -157,6 +185,11 @@ private fun extractMinecraftVersion(json: JsonObject): String {
  * @param versionJson 版本json对象
  */
 private fun detectModLoader(versionJson: JsonObject): VersionInfo.LoaderInfo? {
+    var hasFabric = false
+    var hasLegacyFabric = false
+    var hasBabric = false
+    var fabricLoaderVer: String? = null
+
     versionJson.getAsJsonArray("libraries")?.forEach { libElement ->
         val lib = libElement.asJsonObject
         val (group, artifact, version) = lib.get("name").asString.split(":").let {
@@ -164,9 +197,21 @@ private fun detectModLoader(versionJson: JsonObject): VersionInfo.LoaderInfo? {
         }
 
         when {
-            //Fabric
-            group == "net.fabricmc" && artifact == "fabric-loader" ->
-                return VersionInfo.LoaderInfo(ModLoader.FABRIC, version)
+            //Fabric Loader
+            group == "net.fabricmc" && artifact == "fabric-loader" -> {
+                hasFabric = true
+                fabricLoaderVer = version
+            }
+
+            //Legacy Fabric
+            group == "net.legacyfabric" && artifact == "intermediary" -> {
+                hasLegacyFabric = true
+            }
+
+            //Babric
+            group == "babric" && artifact == "intermediary-upstream" -> {
+                hasBabric = true
+            }
 
             //Forge
             group == "net.minecraftforge" && (artifact == "forge" || artifact == "fmlloader") -> {
@@ -174,8 +219,10 @@ private fun detectModLoader(versionJson: JsonObject): VersionInfo.LoaderInfo? {
                     //新版：1.21.4-54.0.26                 -> 54.0.26
                     version.count { it == '-' } == 1 -> version.substringAfterLast('-')
                     //旧版：1.7.10-10.13.4.1614-1.7.10     -> 10.13.4.1614
+                    //旧版：1.7.2-10.12.2.1161-mc172       -> 10.12.2.1161
                     version.count { it == '-' } >= 2 -> version.split("-").let { parts ->
                         when {
+                            parts.size >= 3 && parts.last().startsWith("mc") -> parts[1]
                             parts.size >= 3 && parts[0] == parts.last() -> parts[1]
                             else -> version
                         }
@@ -205,7 +252,24 @@ private fun detectModLoader(versionJson: JsonObject): VersionInfo.LoaderInfo? {
             //LiteLoader
             group == "com.mumfrey" && artifact == "liteloader" ->
                 return VersionInfo.LoaderInfo(ModLoader.LITE_LOADER, version)
+
+            //Cleanroom
+            group == "com.cleanroommc" && artifact == "cleanroom" ->
+                return VersionInfo.LoaderInfo(ModLoader.CLEANROOM, version)
         }
+    }
+
+    //Fabric 全家桶
+    if (hasFabric && fabricLoaderVer != null) {
+        //包含Fabric加载器
+        val loader = if (hasLegacyFabric) {
+            ModLoader.LEGACY_FABRIC
+        } else if (hasBabric) {
+            ModLoader.BABRIC
+        } else {
+            ModLoader.FABRIC
+        }
+        return VersionInfo.LoaderInfo(loader, fabricLoaderVer)
     }
 
     return null

@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.support.touch_controller
 
 import android.content.ClipData
@@ -32,6 +50,7 @@ import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.platform.PlatformTextInputModifierNode
 import androidx.compose.ui.platform.establishTextInputSession
 import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.util.fastForEach
 import androidx.core.content.getSystemService
 import androidx.core.view.inputmethod.EditorInfoCompat
@@ -46,7 +65,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import org.lwjgl.glfw.CallbackBridge
 import top.fifthlight.touchcontroller.proxy.client.LauncherProxyClient
 import top.fifthlight.touchcontroller.proxy.message.FloatRect
 import top.fifthlight.touchcontroller.proxy.message.input.TextInputState
@@ -61,14 +79,16 @@ import top.fifthlight.touchcontroller.proxy.message.input.doShiftRight
 import top.fifthlight.touchcontroller.proxy.message.input.selectionText
 
 private data class TouchControllerInputModifier(
+    private val screenSize: IntSize,
     private val onCursorRectUpdated: (IntRect?) -> Unit,
     private val onInputAreaRectUpdated: (IntRect?) -> Unit,
 ) :
     ModifierNodeElement<TouchControllerInputModifierNode>() {
     override fun create() =
-        TouchControllerInputModifierNode(onCursorRectUpdated, onInputAreaRectUpdated)
+        TouchControllerInputModifierNode(screenSize, onCursorRectUpdated, onInputAreaRectUpdated)
 
     override fun update(node: TouchControllerInputModifierNode) {
+        node.screenSize = screenSize
         node.onCursorRectUpdated = onCursorRectUpdated
         node.onInputAreaRectUpdated = onInputAreaRectUpdated
     }
@@ -570,6 +590,7 @@ private class TouchControllerInputConnection(
 }
 
 private class TouchControllerInputModifierNode(
+    var screenSize: IntSize,
     var onCursorRectUpdated: (IntRect?) -> Unit,
     var onInputAreaRectUpdated: (IntRect?) -> Unit,
 ) : Modifier.Node(), PlatformTextInputModifierNode {
@@ -582,10 +603,10 @@ private class TouchControllerInputModifierNode(
         }
 
         private fun FloatRect.toIntRect() = IntRect(
-            left = (this.left * CallbackBridge.physicalWidth).toInt(),
-            top = (this.top * CallbackBridge.physicalHeight).toInt(),
-            right = ((this.left + this.width) * CallbackBridge.physicalWidth).toInt(),
-            bottom = ((this.top + this.height) * CallbackBridge.physicalHeight).toInt(),
+            left = (this.left * screenSize.width).toInt(),
+            top = (this.top * screenSize.height).toInt(),
+            right = ((this.left + this.width) * screenSize.width).toInt(),
+            bottom = ((this.top + this.height) * screenSize.height).toInt(),
         )
 
         override fun updateCursor(cursorRect: FloatRect?) {
@@ -667,22 +688,25 @@ private class TouchControllerInputModifierNode(
  */
 @Composable
 fun Modifier.touchControllerInputModifier(
+    screenSize: IntSize,
     onCursorRectUpdated: (IntRect?) -> Unit = {},
     onInputAreaRectUpdated: (IntRect?) -> Unit = {},
-) = this then TouchControllerInputModifier(onCursorRectUpdated, onInputAreaRectUpdated)
+) = this then TouchControllerInputModifier(screenSize, onCursorRectUpdated, onInputAreaRectUpdated)
 
 /**
  * 单独捕获触摸事件，为TouchController模组的控制代理提供信息
  */
 @Composable
-fun Modifier.touchControllerTouchModifier() = this.pointerInput(Unit) {
+fun Modifier.touchControllerTouchModifier(
+    screenSize: IntSize,
+) = this.pointerInput(Unit) {
     awaitPointerEventScope {
         val activePointers = mutableMapOf<PointerId, Int>()
         var nextPointerId = 1
 
         fun PointerInputChange.toProxyOffset(): Pair<Float, Float> {
-            val normalizedX = position.x / CallbackBridge.physicalWidth
-            val normalizedY = position.y / CallbackBridge.physicalHeight
+            val normalizedX = position.x / screenSize.width
+            val normalizedY = position.y / screenSize.height
             return Pair(normalizedX, normalizedY)
         }
 

@@ -1,5 +1,24 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.layer_controller.utils
 
+import androidx.annotation.FloatRange
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -11,6 +30,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -24,7 +44,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -32,8 +51,6 @@ import com.movtery.layer_controller.data.ButtonPosition
 import com.movtery.layer_controller.data.ButtonSize
 import com.movtery.layer_controller.data.toAndroidShape
 import com.movtery.layer_controller.observable.ObservableButtonStyle
-import com.movtery.layer_controller.observable.ObservableNormalData
-import com.movtery.layer_controller.observable.ObservableTextData
 import com.movtery.layer_controller.observable.ObservableWidget
 import com.movtery.layer_controller.utils.snap.GuideLine
 import com.movtery.layer_controller.utils.snap.LineDirection
@@ -58,7 +75,7 @@ import kotlin.math.sqrt
 internal fun Modifier.editMode(
     isEditMode: Boolean,
     data: ObservableWidget,
-    getSize: (ObservableWidget) -> IntSize,
+    screenSize: IntSize,
     enableSnap: Boolean,
     snapMode: SnapMode,
     localSnapRange: Dp,
@@ -68,8 +85,8 @@ internal fun Modifier.editMode(
     onLineCancel: (ObservableWidget) -> Unit,
     onTapInEditMode: () -> Unit = {}
 ): Modifier {
-    val screenSize by rememberUpdatedState(LocalWindowInfo.current.containerSize)
-    val getSize1 by rememberUpdatedState(getSize)
+    val screenSize1 by rememberUpdatedState(screenSize)
+    val widgetSize by rememberUpdatedState(data.internalRenderSize)
 
     val enableSnap1 by rememberUpdatedState(enableSnap)
     val snapMode1 by rememberUpdatedState(snapMode)
@@ -92,21 +109,20 @@ internal fun Modifier.editMode(
                         onDragStart = {
                             data.isEditingPos = false
                             data.movingOffset = Offset.Zero
-                            val currentOffset = getWidgetPosition(data, getSize1(data), screenSize)
+                            val currentOffset = getWidgetPosition(data, widgetSize, screenSize1)
                             data.movingOffset = currentOffset
                             data.isEditingPos = true
                             onLineCancel1(data)
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            val currentSize = getSize1(data)
-                            val currentOffset = getWidgetPosition(data, currentSize, screenSize)
+                            val currentOffset = getWidgetPosition(data, widgetSize, screenSize1)
 
                             var newX = currentOffset.x + dragAmount.x
                             var newY = currentOffset.y + dragAmount.y
 
-                            val maxX = screenSize.width.toFloat() - currentSize.width
-                            val maxY = screenSize.height.toFloat() - currentSize.height
+                            val maxX = screenSize1.width.toFloat() - widgetSize.width
+                            val maxY = screenSize1.height.toFloat() - widgetSize.height
 
                             newX = newX.coerceIn(0f, maxX)
                             newY = newY.coerceIn(0f, maxY)
@@ -114,17 +130,16 @@ internal fun Modifier.editMode(
                             val newPosition = Offset(newX, newY).also { data.movingOffset = it }
 
                             val newPercentagePosition = newPosition.toPercentagePosition(
-                                widgetSize = currentSize,
-                                screenSize = screenSize
+                                widgetSize = widgetSize,
+                                screenSize = screenSize1
                             )
 
                             val finalPosition = if (enableSnap1) {
                                 calculateSnapPosition(
                                     currentPosition = newPercentagePosition,
-                                    widgetSize = currentSize,
-                                    screenSize = screenSize,
+                                    widgetSize = widgetSize,
+                                    screenSize = screenSize1,
                                     otherWidgets = getOtherWidgets1(),
-                                    getSize = getSize1,
                                     snapThreshold = snapThreshold,
                                     snapMode = snapMode1,
                                     localSnapRange = localSnapRangePx,
@@ -140,10 +155,7 @@ internal fun Modifier.editMode(
                                 newPercentagePosition
                             }
 
-                            when (data) {
-                                is ObservableNormalData -> data.position = finalPosition
-                                is ObservableTextData -> data.position = finalPosition
-                            }
+                            data.putRenderPosition(finalPosition)
                         },
                         onDragEnd = {
                             data.isEditingPos = false
@@ -179,7 +191,6 @@ private fun calculateSnapPosition(
     widgetSize: IntSize,
     screenSize: IntSize,
     otherWidgets: List<ObservableWidget>,
-    getSize: (ObservableWidget) -> IntSize,
     snapThreshold: Float,
     snapMode: SnapMode,
     localSnapRange: Float,
@@ -198,7 +209,7 @@ private fun calculateSnapPosition(
     val newYWithLines = mutableMapOf<Float, GuideLine>()
 
     for (otherData in otherWidgets) {
-        val otherSize = getSize(otherData)
+        val otherSize = otherData.internalRenderSize
         val otherPosition = getWidgetPosition(otherData, otherSize, screenSize)
         val otherLeft = otherPosition.x
         val otherRight = otherPosition.x + otherSize.width
@@ -281,13 +292,11 @@ private fun calculateSnapPosition(
  */
 @Composable
 internal fun Modifier.buttonSize(
-    data: ObservableWidget
+    data: ObservableWidget,
+    screenSize: IntSize
 ): Modifier {
-    val size = when (data) {
-        is ObservableNormalData -> data.buttonSize
-        is ObservableTextData -> data.buttonSize
-        else -> error("Unknown widget type")
-    }
+    val size = data.widgetSize
+
     return this.then(
         when (size.type) {
             ButtonSize.Type.Dp -> Modifier.size(
@@ -297,9 +306,8 @@ internal fun Modifier.buttonSize(
 
             //百分比计算方式，根据屏幕的高宽来计算按钮的大小尺寸
             ButtonSize.Type.Percentage -> {
-                val containerSize = LocalWindowInfo.current.containerSize
-                val screenWidth = containerSize.width.toFloat()
-                val screenHeight = containerSize.height.toFloat()
+                val screenWidth = screenSize.width.toFloat()
+                val screenHeight = screenSize.height.toFloat()
 
                 val widthReference = when (size.widthReference) {
                     ButtonSize.Reference.ScreenWidth -> screenWidth
@@ -334,7 +342,11 @@ internal fun buttonContentColorAsState(
     isDark: Boolean = isSystemInDarkTheme(),
     isPressed: Boolean
 ): State<Color> {
-    val themeStyle = if (isDark) style.darkStyle else style.lightStyle
+    val themeStyle = if (style.commonStyle || !isDark) {
+        style.lightStyle
+    } else {
+        style.darkStyle
+    }
 
     val targetColor = remember(themeStyle, isPressed, themeStyle.pressedContentColor, themeStyle.contentColor) {
         if (isPressed) themeStyle.pressedContentColor else themeStyle.contentColor
@@ -348,6 +360,42 @@ internal fun buttonContentColorAsState(
 }
 
 /**
+ * 自动处理按钮文本大小
+ * @param isPressed 按钮是否处于按下的状态
+ */
+@Composable
+internal fun buttonFontSizeAsState(
+    style: ObservableButtonStyle,
+    isDark: Boolean = isSystemInDarkTheme(),
+    isPressed: Boolean
+): State<Float> {
+    val themeStyle = if (style.commonStyle || !isDark) {
+        style.lightStyle
+    } else {
+        style.darkStyle
+    }
+    val textStyle = LocalTextStyle.current
+
+    val fontSize: Float = remember(themeStyle, textStyle, isPressed, themeStyle.fontSize, themeStyle.pressedFontSize) {
+        val defaultFontSize = textStyle.fontSize.value
+        val size: Int? = if (isPressed) {
+            themeStyle.pressedFontSize
+        } else {
+            themeStyle.fontSize
+        }
+        size?.toFloat() ?: defaultFontSize
+    }
+
+    return if (style.animateSwap) {
+        animateFloatAsState(fontSize, label = "fontSizeAnimation")
+    } else {
+        remember(fontSize) {
+            mutableStateOf(fontSize)
+        }
+    }
+}
+
+/**
  * 自动处理按钮样式 - 优化版本
  * @param isPressed 按钮是否处于按下的状态
  */
@@ -357,7 +405,11 @@ internal fun Modifier.buttonStyle(
     isDark: Boolean = isSystemInDarkTheme(),
     isPressed: Boolean
 ): Modifier {
-    val themeStyle = if (isDark) style.darkStyle else style.lightStyle
+    val themeStyle = if (style.commonStyle || !isDark) {
+        style.lightStyle
+    } else {
+        style.darkStyle
+    }
 
     val alpha = remember(themeStyle, isPressed, themeStyle.pressedAlpha, themeStyle.alpha) {
         if (isPressed) themeStyle.pressedAlpha else themeStyle.alpha
@@ -437,12 +489,7 @@ internal fun getWidgetPosition(
     screenSize: IntSize
 ): Offset {
     if (data.isEditingPos) return data.movingOffset
-    val position = when (data) {
-        is ObservableNormalData -> data.position
-        is ObservableTextData -> data.position
-        else -> error("Unknown widget type")
-    }
-    return getWidgetPosition(position, widgetSize, screenSize)
+    return getWidgetPosition(data.internalRenderPosition, widgetSize, screenSize)
 }
 
 /**
@@ -453,9 +500,28 @@ internal fun getWidgetPosition(
     widgetSize: IntSize,
     screenSize: IntSize
 ): Offset {
-    val x = (screenSize.width - widgetSize.width) * (position.xPercentage())
-    val y = (screenSize.height - widgetSize.height) * (position.yPercentage())
-    return Offset(x, y)
+    return widgetPosition(
+        xPercentage = position.xPercentage(),
+        yPercentage = position.yPercentage(),
+        widgetSize = widgetSize,
+        screenSize = screenSize
+    )
+}
+
+/**
+ * 用 X, Y 百分比的计算方式，计算组件在屏幕上的 Offset
+ */
+fun widgetPosition(
+    @FloatRange(from = 0.0, to = 1.0)
+    xPercentage: Float,
+    @FloatRange(from = 0.0, to = 1.0)
+    yPercentage: Float,
+    widgetSize: IntSize,
+    screenSize: IntSize
+): Offset {
+    val newX = (screenSize.width - widgetSize.width) * xPercentage
+    val newY = (screenSize.height - widgetSize.height) * yPercentage
+    return Offset(newX, newY)
 }
 
 /**

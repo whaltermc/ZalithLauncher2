@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models
 
 import com.movtery.zalithlauncher.game.download.assets.platform.Platform
@@ -21,8 +39,16 @@ class ModrinthVersion(
     @SerialName("version_number")
     val versionNumber: String,
 
-    /** 版本的变更日志 */
+    /**
+     * 版本的变更日志
+     *
+     * **完全不使用**，但防止有的作者会把这个东西整的老大了，
+     * 导致启动器OOM异常，比如模组 [Crash Assistant](https://modrinth.com/mod/crash-assistant)，
+     * 所以此字段用不序列化也不应该被代码使用
+     */
+    @Transient
     @SerialName("changelog")
+    @Deprecated("不应该被代码使用！")
     val changelog: String? = null,
 
     /** 此版本所依赖的特定项目版本的列表 */
@@ -113,6 +139,8 @@ class ModrinthVersion(
 
     override fun platformId(): String = id
 
+    override fun platformProjectId(): String = projectId
+
     override fun platformDisplayName(): String = name
 
     override fun platformFileName(): String = thisPrimaryFile.fileName
@@ -128,10 +156,11 @@ class ModrinthVersion(
     override fun platformReleaseType(): PlatformReleaseType = versionType
 
     override fun platformDependencies(): List<PlatformVersion.PlatformDependency> = dependencies.mapNotNull { dependency ->
+        if (dependency.projectId == null && dependency.versionId == null) return@mapNotNull null
         PlatformVersion.PlatformDependency(
             platform = platform(),
-            //若未提供项目Id，则判定其无效或被删除，跳过该依赖
-            projectId = dependency.projectId ?: return@mapNotNull null,
+            projectId = dependency.projectId,
+            versionId = dependency.versionId,
             type = dependency.dependencyType
         )
     }

@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.assets.platform.modrinth
 
 import com.movtery.zalithlauncher.game.download.assets.platform.Platform
@@ -6,15 +24,10 @@ import com.movtery.zalithlauncher.game.download.assets.platform.PlatformDisplayL
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformFilterCode
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformSearchData
 import com.movtery.zalithlauncher.game.download.assets.platform.PlatformSearchResult
-import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthFeatures
-import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthModCategory
 import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthModLoaderCategory
-import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthModpackCategory
-import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthProjectType
-import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthResourcePackCategory
-import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthShadersCategory
 import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.ModrinthSide
 import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.MonetizationStatus
+import com.movtery.zalithlauncher.game.download.assets.platform.modrinth.models.mapModrinthCategory
 import com.movtery.zalithlauncher.game.download.assets.platform.searchRankWithChineseBias
 import com.movtery.zalithlauncher.game.download.assets.utils.getTranslations
 import com.movtery.zalithlauncher.ui.screens.content.download.assets.elements.AssetsPage
@@ -62,7 +75,7 @@ class ModrinthSearchResult(
          * 项目类型 **required**
          */
         @SerialName("project_type")
-        val projectType: ModrinthProjectType,
+        val projectType: String,
 
         /**
          * 项目简洁字符串标识符 **un-required**
@@ -204,7 +217,7 @@ class ModrinthSearchResult(
 
         override fun platformDownloadCount(): Long = downloads
 
-        override fun platformFollows(): Long? = follows
+        override fun platformFollows(): Long = follows
 
         override fun platformModLoaders(): List<PlatformDisplayLabel>? {
             val modloaders = displayCategories
@@ -218,28 +231,16 @@ class ModrinthSearchResult(
         }
 
         override fun platformCategories(classes: PlatformClasses): List<PlatformFilterCode>? {
-            fun map(string: String): PlatformFilterCode? {
-                val mapValues = when (classes) {
-                    PlatformClasses.MOD -> ModrinthModCategory.entries
-                    PlatformClasses.MOD_PACK -> ModrinthModpackCategory.entries
-                    PlatformClasses.RESOURCE_PACK -> ModrinthResourcePackCategory.entries
-                    PlatformClasses.SAVES -> null
-                    PlatformClasses.SHADERS -> ModrinthShadersCategory.entries
-                }
-                return mapValues?.find { it.facetValue() == string }
-                    ?: ModrinthFeatures.entries.find { it.facetValue() == string }
-            }
-
             val categories = displayCategories
                 ?.mapNotNull { string ->
-                    map(string)
+                    string.mapModrinthCategory(classes)
                 }
                 ?.toSet()
                 ?.takeIf { it.isNotEmpty() }
                 ?: categories
                     ?.take(4) //没有主要类别，则展示前4个
                     ?.mapNotNull { string ->
-                        map(string)
+                        string.mapModrinthCategory(classes)
                     }
                     ?.toSet()
                     ?.takeIf { it.isNotEmpty() }

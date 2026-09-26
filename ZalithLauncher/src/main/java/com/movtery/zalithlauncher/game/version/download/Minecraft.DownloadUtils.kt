@@ -1,13 +1,29 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.download
 
-import com.movtery.zalithlauncher.game.addons.mirror.mapMirrorableUrls
+import com.movtery.zalithlauncher.game.addons.mirror.mapBMCLMirrorUrls
 import com.movtery.zalithlauncher.game.versioninfo.models.GameManifest
 import com.movtery.zalithlauncher.game.versioninfo.models.OperatingSystem
 import com.movtery.zalithlauncher.utils.GSON
 import com.movtery.zalithlauncher.utils.file.compareSHA1
-import com.movtery.zalithlauncher.utils.logging.Logger.lDebug
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.network.fetchStringFromUrls
 import com.movtery.zalithlauncher.utils.network.withRetry
 import kotlinx.coroutines.Dispatchers
@@ -15,13 +31,15 @@ import kotlinx.coroutines.withContext
 import org.apache.commons.io.FileUtils
 import java.io.File
 
+private const val TAG = "Minecraft.DownloadUtils"
+
 private const val UTILS_LOG_TAG = "Minecraft.DownloaderUtils"
 
 fun <T> String.parseTo(classOfT: Class<T>): T {
     return runCatching {
         GSON.fromJson(this, classOfT)
     }.getOrElse { e ->
-        lError("Failed to parse JSON", e)
+        Logger.error(TAG, "Failed to parse JSON", e)
         throw e
     }
 }
@@ -30,18 +48,17 @@ suspend fun <T> downloadAndParseJson(
     targetFile: File,
     url: String,
     expectedSHA: String?,
-    verifyIntegrity: Boolean,
     classOfT: Class<T>
 ): T {
     suspend fun downloadAndParse(): T {
         val json = withContext(Dispatchers.IO) {
-            val string = withRetry(UTILS_LOG_TAG, maxRetries = 1) {
+            val string = withRetry(UTILS_LOG_TAG, maxRetries = 2) {
                 fetchStringFromUrls(
-                    url.mapMirrorableUrls()
+                    url.mapBMCLMirrorUrls()
                 )
             }
             if (string.isBlank()) {
-                lError("Downloaded string is empty, aborting.")
+                Logger.error(TAG, "Downloaded string is empty, aborting.")
                 throw IllegalStateException("Downloaded string is empty.")
             }
             targetFile.writeText(string)
@@ -51,11 +68,11 @@ suspend fun <T> downloadAndParseJson(
     }
 
     if (targetFile.exists()) {
-        if (!verifyIntegrity || compareSHA1(targetFile, expectedSHA)) {
+        if (compareSHA1(targetFile, expectedSHA)) {
             return runCatching {
                 targetFile.readText().parseTo(classOfT)
             }.getOrElse {
-                lWarning("Failed to parse existing JSON, re-downloading...")
+                Logger.warning(TAG, "Failed to parse existing JSON, re-downloading...")
                 downloadAndParse()
             }
         } else {
@@ -71,7 +88,7 @@ fun artifactToPath(library: GameManifest.Library): String? {
 
     val libInfos = library.name.split(":")
     if (libInfos.size < 3) {
-        lError("Invalid library name format: ${library.name}")
+        Logger.error(TAG, "Invalid library name format: ${library.name}")
         return null
     }
 
@@ -94,11 +111,13 @@ fun artifactToPath(library: GameManifest.Library): String? {
 
 fun processLibraries(libraries: () -> List<GameManifest.Library>) {
     libraries().forEach { library ->
+        if (library.filterLibrary()) return@forEach
+
         val versionSegment = library.name.split(":").getOrNull(2) ?: return
         val versionParts = versionSegment.split(".")
 
         getLibraryReplacement(library.name, versionParts)?.let { replacement ->
-            lDebug("Library ${library.name} has been changed to version ${replacement.newName.split(":").last()}")
+            Logger.debug(TAG, "Library ${library.name} has been changed to version ${replacement.newName.split(":").last()}")
             updateLibrary(library, replacement)
         }
     }
@@ -114,6 +133,8 @@ private fun updateLibrary(
         path = replacement.newPath
         sha1 = replacement.newSha1
         url = replacement.newUrl
+        //新版本的大小与旧版本必然不同，残留旧值会令下载器提前截断文件
+        if (replacement.newSize > 0) size = replacement.newSize
     }
 }
 

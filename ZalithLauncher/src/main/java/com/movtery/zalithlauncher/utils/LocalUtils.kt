@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.utils
 
 import android.content.ClipData
@@ -10,17 +28,21 @@ import android.os.Build
 import android.os.Process
 import android.util.Log
 import android.view.KeyEvent
+import android.widget.Toast
 import com.google.gson.GsonBuilder
+import com.movtery.zalithlauncher.BuildConfig
+import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.R
-import com.movtery.zalithlauncher.info.InfoDistributor
-import com.movtery.zalithlauncher.utils.logging.Logger.lDebug
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
+import com.movtery.zalithlauncher.utils.device.Architecture
+import com.movtery.zalithlauncher.utils.logging.Logger
+import com.xhinliang.lunarcalendar.LunarCalendar
 import java.io.File
 import java.io.PrintStream
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -32,18 +54,27 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.floor
 
+private const val TAG = "LocalUtils"
+
 val GSON = GsonBuilder().setPrettyPrinting().create()
+
+const val DEFAULT_DATE_PATTERN = "yyyy-MM-dd HH:mm:ss"
 
 /**
  * 格式化时间戳
  */
 fun formatDate(
     date: Date,
-    pattern: String = "yyyy-MM-dd HH:mm:ss",
+    pattern: String = DEFAULT_DATE_PATTERN,
     locale: Locale = Locale.getDefault(),
     timeZone: TimeZone = TimeZone.getDefault()
 ): String {
-    val formatter = SimpleDateFormat(pattern, locale)
+    val formatter = try {
+        SimpleDateFormat(pattern, locale)
+    } catch (e: IllegalArgumentException) {
+        Logger.warning(TAG, "Encountered an illegal format string while initializing time string formatting: $pattern", e)
+        SimpleDateFormat(DEFAULT_DATE_PATTERN, locale)
+    }
     formatter.timeZone = timeZone
     return formatter.format(date)
 }
@@ -52,15 +83,38 @@ fun formatDate(
  * 格式化时间戳
  */
 fun formatDate(
+    timestamp: Long,
+    pattern: String = DEFAULT_DATE_PATTERN,
+    locale: Locale = Locale.getDefault(),
+    timeZone: TimeZone = TimeZone.getDefault()
+): String {
+    return formatDate(
+        date = Date(timestamp),
+        pattern = pattern,
+        locale = locale,
+        timeZone = timeZone
+    )
+}
+
+/**
+ * 格式化时间戳
+ */
+fun formatDate(
     input: String,
-    pattern: String = "yyyy-MM-dd HH:mm:ss",
+    pattern: String = DEFAULT_DATE_PATTERN,
     locale: Locale = Locale.getDefault(),
     zoneId: ZoneId = ZoneId.systemDefault()
 ): String {
-    val formatter = DateTimeFormatter.ofPattern(pattern)
+    val formatter = try {
+        DateTimeFormatter.ofPattern(pattern)
+    } catch (e: IllegalArgumentException) {
+        Logger.warning(TAG, "Encountered an illegal format string while initializing time string formatting: $pattern", e)
+        DateTimeFormatter.ofPattern(DEFAULT_DATE_PATTERN)
+    }
+    return formatter
         .withLocale(locale)
         .withZone(zoneId)
-    return formatter.format(
+        .format(
         OffsetDateTime.parse(input).toZonedDateTime()
     )
 }
@@ -121,14 +175,61 @@ fun getTimeAgo(
     return context.getString(R.string.just_now)
 }
 
-fun copyText(label: String?, text: String?, context: Context) {
-    val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboardManager.setPrimaryClip(ClipData.newPlainText(label, text))
+/**
+ * 检查是否为给定的日期
+ */
+fun LocalDate.checkDate(month: Int, day: Int): Boolean {
+    return monthValue == month && dayOfMonth == day
 }
 
-fun getSystemLanguage(): String {
-    val locale = Locale.getDefault()
-    return locale.language + "_" + locale.country.lowercase(Locale.getDefault())
+/**
+ * 检查是否为给定的日期范围
+ */
+fun LocalDate.checkDateRange(month: Int, dayRange: IntRange): Boolean {
+    return monthValue == month && dayOfMonth in dayRange
+}
+
+/**
+ * 检查是否为给定的日期（农历）
+ */
+fun LunarCalendar.checkDate(month: Int, day: Int): Boolean {
+    return lunar.month == month && lunar.day == day
+}
+
+/**
+ * 检查是否为给定的日期范围（农历）
+ */
+fun LunarCalendar.checkDateRange(month: Int, dayRange: IntRange): Boolean {
+    return lunar.month == month && lunar.day in dayRange
+}
+
+/**
+ * 获取简单的语言标签
+ */
+fun Locale.toLangTag(): String {
+    return language + "_" + country.lowercase()
+}
+
+/**
+ * 检查语言标签是否与当前系统匹配
+ * 支持此类格式："zh_cn", "en_us", "zh", "en"
+ */
+fun Locale.compareLangTag(
+    targetTag: String
+): Boolean {
+    return if (targetTag.contains("_")) {
+        toLangTag() == targetTag
+    } else {
+        language == targetTag
+    }
+}
+
+fun copyText(label: String?, text: String?, context: Context, showToast: Boolean = true) {
+    val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboardManager.setPrimaryClip(ClipData.newPlainText(label, text))
+    if (showToast) {
+        Toast.makeText(context, context.getString(R.string.generic_copied), Toast.LENGTH_SHORT).show()
+    }
 }
 
 fun getDisplayFriendlyRes(displaySideRes: Int, scaling: Float): Int {
@@ -140,12 +241,12 @@ fun getDisplayFriendlyRes(displaySideRes: Int, scaling: Float): Int {
 fun isAdrenoGPU(): Boolean {
     val eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
     if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
-        lError("Failed to get EGL display")
+        Logger.error(TAG, "Failed to get EGL display")
         return false
     }
 
     if (!EGL14.eglInitialize(eglDisplay, null, 0, null, 0)) {
-        lError("Failed to initialize EGL")
+        Logger.error(TAG, "Failed to initialize EGL")
         return false
     }
 
@@ -168,7 +269,7 @@ fun isAdrenoGPU(): Boolean {
         ) || numConfigs[0] == 0
     ) {
         EGL14.eglTerminate(eglDisplay)
-        lError("Failed to choose an EGL config")
+        Logger.error(TAG, "Failed to choose an EGL config")
         return false
     }
 
@@ -186,7 +287,7 @@ fun isAdrenoGPU(): Boolean {
     )
     if (context == EGL14.EGL_NO_CONTEXT) {
         EGL14.eglTerminate(eglDisplay)
-        lError("Failed to create EGL context")
+        Logger.error(TAG, "Failed to create EGL context")
         return false
     }
 
@@ -199,7 +300,7 @@ fun isAdrenoGPU(): Boolean {
     ) {
         EGL14.eglDestroyContext(eglDisplay, context)
         EGL14.eglTerminate(eglDisplay)
-        lError("Failed to make EGL context current")
+        Logger.error(TAG, "Failed to make EGL context current")
         return false
     }
 
@@ -219,7 +320,7 @@ fun isAdrenoGPU(): Boolean {
     EGL14.eglDestroyContext(eglDisplay, context)
     EGL14.eglTerminate(eglDisplay)
 
-    lDebug("Running on Adreno GPU: $isAdreno")
+    Logger.debug(TAG, "Running on Adreno GPU: $isAdreno")
     return isAdreno
 }
 
@@ -227,7 +328,7 @@ fun killProgress() {
     runCatching {
         Process.killProcess(Process.myPid())
     }.onFailure {
-        lError("Could not enable System.exit() method!", it)
+        Logger.error(TAG, "Could not enable System.exit() method!", it)
     }
 }
 
@@ -291,6 +392,26 @@ private fun formatWithUnit(value: Double, unit: String): String {
     return "$displayValue$unit"
 }
 
+fun isChinaMainland(): Boolean {
+    val timeZone = TimeZone.getDefault()
+
+    if (
+        timeZone.id in listOf(
+            "Asia/Shanghai",
+            "Asia/Chongqing",//历史遗留
+            "Asia/Urumqi"
+        )
+    ) return true
+
+    val offsetMillis = timeZone.getOffset(System.currentTimeMillis())
+    val isUtcPlus8 = offsetMillis == 8 * 60 * 60 * 1000
+
+    if (!isUtcPlus8) return false
+
+    //应用内支持修改语言，不能再以语言来进行判断
+    return /*Locale.getDefault().country.equals("CN", ignoreCase = true)*/false
+}
+
 /**
  * 检查当前环境是否为中文环境
  */
@@ -324,6 +445,34 @@ fun isChineseLocale(locale: Locale): Boolean {
     )
 }
 
+fun isInGreaterChina(): Boolean {
+    return isChinaTimeZone() && Locale.getDefault().language == "zh"
+}
+
+/**
+ * 判断当前时区是否属于中国
+ */
+private fun isChinaTimeZone(): Boolean {
+    return when (TimeZone.getDefault().id) {
+        "Asia/Shanghai",
+        "Asia/Chongqing",//历史遗留
+        "Asia/Hong_Kong",
+        "Asia/Macao",
+        "Asia/Taipei",
+        "Asia/Urumqi" -> true
+        else -> false
+    }
+}
+
+fun printLauncherInfo(
+    println: (String) -> Unit
+) {
+    println("▷ Device: ${Build.PRODUCT} ${Build.MODEL}")
+    println("▷ Arch: ${Architecture.archAsString(Architecture.getDeviceArchitecture())}")
+    println("▷ Android Version: ${Build.VERSION.RELEASE}")
+    println("▷ Launcher Version: ${BuildConfig.VERSION_NAME}, build: ${BuildKeys.BUILD_ARCH}")
+}
+
 /**
  * 将崩溃报告写入指定文件
  */
@@ -334,13 +483,11 @@ fun writeCrashFile(
 ) {
     runCatching {
         PrintStream(file).use { stream ->
-            stream.append("================ ${InfoDistributor.LAUNCHER_IDENTIFIER} Crash Report ================\n")
-            stream.append("- Time: ${DateFormat.getDateTimeInstance().format(Date())}\n")
-            stream.append("- Device: ${Build.PRODUCT} ${Build.MODEL}\n")
-            stream.append("- Android Version: ${Build.VERSION.RELEASE}\n")
-            stream.append("- Launcher Version: test\n")
-            stream.append("===================== Crash Stack Trace =====================\n")
-            stream.append(Log.getStackTraceString(throwable))
+            stream.println("================ ${BuildKeys.LAUNCHER_IDENTIFIER} Crash Report ================")
+            stream.println("▷ Time: ${DateFormat.getDateTimeInstance().format(Date())}")
+            printLauncherInfo { stream.println(it) }
+            stream.println("===================== Crash Stack Trace =====================")
+            stream.println(Log.getStackTraceString(throwable))
         }
     }.onFailure(onFailure)
 }

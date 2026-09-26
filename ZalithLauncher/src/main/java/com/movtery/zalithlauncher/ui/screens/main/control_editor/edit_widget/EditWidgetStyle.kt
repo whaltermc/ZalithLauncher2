@@ -1,6 +1,23 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.main.control_editor.edit_widget
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -12,7 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,7 +42,10 @@ import com.movtery.layer_controller.observable.ObservableNormalData
 import com.movtery.layer_controller.observable.ObservableTextData
 import com.movtery.layer_controller.observable.ObservableWidget
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.setting.enums.isLauncherInDarkTheme
+import com.movtery.zalithlauncher.ui.base.BaseScreen
 import com.movtery.zalithlauncher.ui.components.MarqueeText
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
 import com.movtery.zalithlauncher.ui.screens.main.control_editor.InfoLayoutItem
 import com.movtery.zalithlauncher.ui.screens.main.control_editor.InfoLayoutTextItem
 import com.movtery.zalithlauncher.utils.string.isNotEmptyOrBlank
@@ -35,30 +55,37 @@ import com.movtery.zalithlauncher.utils.string.isNotEmptyOrBlank
  */
 @Composable
 fun EditWidgetStyle(
+    screenKey: TitledNavKey,
+    currentKey: TitledNavKey?,
     data: ObservableWidget,
     styles: List<ObservableButtonStyle>,
     openStyleList: () -> Unit
 ) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
+    BaseScreen(
+        screenKey = screenKey,
+        currentKey = currentKey
     ) {
-        when (data) {
-            is ObservableTextData -> {
-                MainContent(
-                    styles = styles,
-                    buttonStyle = data.buttonStyle,
-                    onButtonStyleChanged = { data.buttonStyle = it },
-                    openStyleList = openStyleList
-                )
-            }
-            is ObservableNormalData -> {
-                MainContent(
-                    styles = styles,
-                    buttonStyle = data.buttonStyle,
-                    onButtonStyleChanged = { data.buttonStyle = it },
-                    openStyleList = openStyleList
-                )
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            when (data) {
+                is ObservableTextData -> {
+                    MainContent(
+                        styles = styles,
+                        buttonStyle = data.buttonStyle,
+                        onButtonStyleChanged = { data.buttonStyle = it },
+                        openStyleList = openStyleList
+                    )
+                }
+                is ObservableNormalData -> {
+                    MainContent(
+                        styles = styles,
+                        buttonStyle = data.buttonStyle,
+                        onButtonStyleChanged = { data.buttonStyle = it },
+                        openStyleList = openStyleList
+                    )
+                }
             }
         }
     }
@@ -118,7 +145,7 @@ private fun ChoseStyleItem(
                 modifier = Modifier.size(50.dp),
                 style = style,
                 text = "abc",
-                isDark = isSystemInDarkTheme(),
+                isDark = isLauncherInDarkTheme(),
                 isPressed = false
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -127,9 +154,11 @@ private fun ChoseStyleItem(
                 text = style.name.takeIf { it.isNotEmptyOrBlank() } ?: stringResource(R.string.generic_unspecified),
                 textAlign = TextAlign.Center
             )
-            Checkbox(
-                checked = selected,
-                onCheckedChange = onSelectedChange
+            RadioButton(
+                selected = selected,
+                onClick = {
+                    onSelectedChange(!selected)
+                }
             )
         }
     }

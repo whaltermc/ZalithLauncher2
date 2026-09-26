@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.addons.modloader.forgelike.neoforge
 
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
@@ -58,10 +76,31 @@ private fun parseInherit(rawVersion: String): String {
         }
         else -> {
             val version = parseVersion(rawVersion)
-            buildString {
-                append("1.").append(version.major)
-                if (version.minor != 0) append(".").append(version.minor)
+            //优先解析26.1+新版本格式
+            parseNewInherit(version) ?: run {
+                buildString {
+                    append("1.").append(version.major)
+                    if (version.minor != 0) append(".").append(version.minor)
+                }
             }
         }
+    }
+}
+
+private fun parseNewInherit(
+    buildVersion: ForgeBuildVersion
+): String? {
+    //26.1.0.0
+    if (buildVersion.major < 26) return null
+    return buildString {
+        append(buildVersion.major)
+        append(".")
+        append(buildVersion.minor)
+        buildVersion.build
+            .takeIf { it > 0 }
+            ?.let { part ->
+                append(".")
+                append(part)
+            }
     }
 }

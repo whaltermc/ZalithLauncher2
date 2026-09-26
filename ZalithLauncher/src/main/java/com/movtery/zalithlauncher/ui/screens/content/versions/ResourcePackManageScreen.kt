@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.content.versions
 
 import androidx.compose.animation.AnimatedVisibility
@@ -5,8 +23,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,31 +41,26 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Deselect
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RichTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.nonInteractiveScrollbar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,6 +75,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
@@ -68,39 +85,49 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation3.runtime.NavKey
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.coroutine.TaskSystem
 import com.movtery.zalithlauncher.game.version.installed.Version
 import com.movtery.zalithlauncher.game.version.installed.VersionFolders
+import com.movtery.zalithlauncher.game.version.resource_pack.ResourcePackInfo
+import com.movtery.zalithlauncher.game.version.resource_pack.parseResourcePack
 import com.movtery.zalithlauncher.ui.base.BaseScreen
+import com.movtery.zalithlauncher.ui.components.CardTitleLayout
 import com.movtery.zalithlauncher.ui.components.ContentCheckBox
+import com.movtery.zalithlauncher.ui.components.EdgeDirection
 import com.movtery.zalithlauncher.ui.components.IconTextButton
 import com.movtery.zalithlauncher.ui.components.ProgressDialog
 import com.movtery.zalithlauncher.ui.components.ScalingLabel
 import com.movtery.zalithlauncher.ui.components.SimpleAlertDialog
 import com.movtery.zalithlauncher.ui.components.SimpleTextInputField
 import com.movtery.zalithlauncher.ui.components.TooltipIconButton
-import com.movtery.zalithlauncher.ui.components.itemLayoutColor
+import com.movtery.zalithlauncher.ui.components.fadeEdge
 import com.movtery.zalithlauncher.ui.screens.NestedNavKey
 import com.movtery.zalithlauncher.ui.screens.NormalNavKey
-import com.movtery.zalithlauncher.ui.screens.content.elements.ImportFileButton
+import com.movtery.zalithlauncher.ui.screens.TitledNavKey
+import com.movtery.zalithlauncher.ui.screens.content.elements.ImportMultipleFileButton
+import com.movtery.zalithlauncher.ui.screens.content.elements.SortByDropdownMenu
+import com.movtery.zalithlauncher.ui.screens.content.elements.SortByEnum
+import com.movtery.zalithlauncher.ui.screens.content.elements.rememberMultipleUriImportTaskBuilder
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.ByteArrayIcon
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.DeleteAllOperation
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.FileNameInputDialog
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.LoadingState
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.MinecraftColorTextNormal
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.ResourcePackFilter
-import com.movtery.zalithlauncher.ui.screens.content.versions.elements.ResourcePackInfo
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.ResourcePackOperation
 import com.movtery.zalithlauncher.ui.screens.content.versions.elements.filterPacks
-import com.movtery.zalithlauncher.ui.screens.content.versions.elements.parseResourcePack
-import com.movtery.zalithlauncher.ui.screens.content.versions.layouts.VersionSettingsBackground
+import com.movtery.zalithlauncher.ui.screens.content.versions.layouts.VersionChunkBackground
+import com.movtery.zalithlauncher.ui.theme.itemColor
+import com.movtery.zalithlauncher.ui.theme.onItemColor
 import com.movtery.zalithlauncher.utils.animation.getAnimateTween
 import com.movtery.zalithlauncher.utils.animation.swapAnimateDpAsState
+import com.movtery.zalithlauncher.utils.file.FolderFileCounter
 import com.movtery.zalithlauncher.utils.file.formatFileSize
 import com.movtery.zalithlauncher.viewmodel.ErrorViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -117,6 +144,10 @@ private class ResourcePackManageViewModel(
         private set
     var filteredPacks by mutableStateOf<List<ResourcePackInfo>?>(null)
         private set
+    var sortByEnum by mutableStateOf(SortByEnum.Name)
+        private set
+    var isAscending by mutableStateOf(true)
+        private set
 
     var packState by mutableStateOf<LoadingState>(LoadingState.None)
         private set
@@ -124,17 +155,42 @@ private class ResourcePackManageViewModel(
     /**
      * 已选择的文件
      */
-    val selectedFiles = mutableStateListOf<File>()
+    val selectedPacks = mutableStateListOf<ResourcePackInfo>()
 
     /**
      * 删除所有已选择文件的操作流程
      */
     var deleteAllOperation by mutableStateOf<DeleteAllOperation>(DeleteAllOperation.None)
 
-    fun refresh() {
-        viewModelScope.launch {
+    /** 临时记录的资源包数量 */
+    private var packCount = FolderFileCounter(resourcePackDir)
+
+    /**
+     * 全选所有文件
+     */
+    fun selectAllFiles() {
+        filteredPacks?.forEach { pack ->
+            if (!selectedPacks.contains(pack)) selectedPacks.add(pack)
+        }
+    }
+
+    fun clearSelected() {
+        filteredPacks?.let {
+            selectedPacks.removeAll(it)
+        }
+    }
+
+    private var job: Job? = null
+    /**
+     * @param checkCount 刷新目录内文件数量记录
+     */
+    fun refresh(
+        checkCount: Boolean = true
+    ) {
+        job = viewModelScope.launch {
             packState = LoadingState.Loading
-            selectedFiles.clear()
+            selectedPacks.clear()
+            if (checkCount) packCount.checkDir()
 
             withContext(Dispatchers.IO) {
                 val tempList = mutableListOf<ResourcePackInfo>()
@@ -153,11 +209,19 @@ private class ResourcePackManageViewModel(
             }
 
             packState = LoadingState.None
+            job = null
+        }
+    }
+
+    fun checkCountAndRefresh() {
+        val isUnchecked = packCount.isUnchecked()
+        if (packCount.checkDir() && !isUnchecked && job == null) {
+            refresh(checkCount = false)
         }
     }
 
     init {
-        refresh()
+        refresh(checkCount = false)
     }
 
     fun updateFilter(filter: ResourcePackFilter) {
@@ -165,8 +229,42 @@ private class ResourcePackManageViewModel(
         filterPacks()
     }
 
+    fun updateSortBy(sortByEnum: SortByEnum) {
+        this.sortByEnum = sortByEnum
+        filterPacks()
+    }
+
+    fun updateSortOrder() {
+        this.isAscending = !this.isAscending
+        filterPacks()
+    }
+
+    val supportedSortByEnums = listOf(
+        SortByEnum.Name, SortByEnum.FileModifiedTime
+    )
+
     private fun filterPacks() {
-        filteredPacks = allPacks.takeIf { it.isNotEmpty() }?.filterPacks(packFilter)
+        filteredPacks = allPacks
+            .takeIf { it.isNotEmpty() }
+            ?.filterPacks(packFilter)
+            ?.sortedWith { o1, o2 ->
+                val value = when (sortByEnum) {
+                    SortByEnum.Name -> o1.displayName.compareTo(o2.displayName)
+                    SortByEnum.FileModifiedTime -> o2.file.lastModified().compareTo(o1.file.lastModified())
+                    else -> error("This sorting method is not supported: $sortByEnum")
+                }
+                if (isAscending) {
+                    value
+                } else {
+                    -value
+                }
+            }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        job?.cancel()
+        job = null
     }
 }
 
@@ -180,10 +278,11 @@ private fun rememberResourcePackManageViewModel(
     ResourcePackManageViewModel(resourcePackDir)
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ResourcePackManageScreen(
-    mainScreenKey: NavKey?,
-    versionsScreenKey: NavKey?,
+    mainScreenKey: TitledNavKey?,
+    versionsScreenKey: TitledNavKey?,
     version: Version,
     backToMainScreen: () -> Unit,
     swapToDownload: () -> Unit,
@@ -194,14 +293,21 @@ fun ResourcePackManageScreen(
         return
     }
 
+    val resourcePackDir = remember(version) {
+        VersionFolders.RESOURCE_PACK.getDir(version.getGameDir())
+    }
+
     BaseScreen(
         levels1 = listOf(
             Pair(NestedNavKey.VersionSettings::class.java, mainScreenKey)
         ),
         Triple(NormalNavKey.Versions.ResourcePackManager, versionsScreenKey, false)
     ) { isVisible ->
-        val resourcePackDir = File(version.getGameDir(), VersionFolders.RESOURCE_PACK.folderName)
         val viewModel = rememberResourcePackManageViewModel(resourcePackDir, version)
+
+        LaunchedEffect(Unit) {
+            viewModel.checkCountAndRefresh()
+        }
 
         DeleteAllOperation(
             operation = viewModel.deleteAllOperation,
@@ -215,7 +321,7 @@ fun ResourcePackManageScreen(
             swapIn = isVisible
         )
 
-        VersionSettingsBackground(
+        VersionChunkBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(all = 12.dp)
@@ -226,9 +332,6 @@ fun ResourcePackManageScreen(
 
             when (viewModel.packState) {
                 is LoadingState.None -> {
-                    val itemColor = itemLayoutColor()
-                    val itemContentColor = MaterialTheme.colorScheme.onSurface
-
                     var resourcePackOperation by remember { mutableStateOf<ResourcePackOperation>(ResourcePackOperation.None) }
                     fun runProgress(task: () -> Unit) {
                         operationScope.launch(Dispatchers.IO) {
@@ -259,27 +362,31 @@ fun ResourcePackManageScreen(
 
                     Column {
                         ResourcePackHeader(
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .padding(top = 4.dp)
-                                .fillMaxWidth(),
-                            inputFieldColor = itemColor,
-                            inputFieldContentColor = itemContentColor,
+                            modifier = Modifier.fillMaxWidth(),
                             packFilter = viewModel.packFilter,
                             changePackFilter = { viewModel.updateFilter(it) },
+                            supportedSortByEnums = viewModel.supportedSortByEnums,
+                            sortByEnum = viewModel.sortByEnum,
+                            onSortByChanged = { viewModel.updateSortBy(it) },
+                            isAscending = viewModel.isAscending,
+                            onToggleSortOrder = { viewModel.updateSortOrder() },
                             resourcePackDir = resourcePackDir,
                             onDeleteAll = {
+                                val selected = viewModel.selectedPacks
                                 if (
                                     viewModel.deleteAllOperation == DeleteAllOperation.None &&
-                                    viewModel.selectedFiles.isNotEmpty()
+                                    selected.isNotEmpty()
                                 ) {
                                     viewModel.deleteAllOperation = DeleteAllOperation.Warning(
-                                        files = viewModel.selectedFiles
+                                        files = selected.map { pack ->
+                                            pack.file
+                                        }
                                     )
                                 }
                             },
-                            isFilesSelected = viewModel.selectedFiles.isNotEmpty(),
-                            onClearFilesSelected = { viewModel.selectedFiles.clear() },
+                            isFilesSelected = viewModel.selectedPacks.isNotEmpty(),
+                            onSelectAll = { viewModel.selectAllFiles() },
+                            onClearFilesSelected = { viewModel.clearSelected() },
                             swapToDownload = swapToDownload,
                             onRefresh = {
                                 viewModel.refresh()
@@ -292,18 +399,19 @@ fun ResourcePackManageScreen(
                                 .fillMaxWidth()
                                 .weight(1f),
                             packList = viewModel.filteredPacks,
-                            selectedFiles = viewModel.selectedFiles,
-                            removeFromSelected = { viewModel.selectedFiles.remove(it) },
-                            addToSelected = { viewModel.selectedFiles.add(it) },
-                            itemColor = itemColor,
-                            itemContentColor = itemContentColor,
+                            selectedPacks = viewModel.selectedPacks,
+                            removeFromSelected = { viewModel.selectedPacks.remove(it) },
+                            addToSelected = { viewModel.selectedPacks.add(it) },
                             updateOperation = { resourcePackOperation = it }
                         )
                     }
                 }
                 is LoadingState.Loading -> {
-                    Box(Modifier.fillMaxSize()) {
-                        CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LoadingIndicator()
                     }
                 }
             }
@@ -314,116 +422,177 @@ fun ResourcePackManageScreen(
 @Composable
 private fun ResourcePackHeader(
     modifier: Modifier = Modifier,
-    inputFieldColor: Color,
-    inputFieldContentColor: Color,
     packFilter: ResourcePackFilter,
     changePackFilter: (ResourcePackFilter) -> Unit,
+    supportedSortByEnums: List<SortByEnum>,
+    sortByEnum: SortByEnum,
+    onSortByChanged: (SortByEnum) -> Unit,
+    isAscending: Boolean,
+    onToggleSortOrder: () -> Unit,
     resourcePackDir: File,
     onDeleteAll: () -> Unit,
     isFilesSelected: Boolean,
+    onSelectAll: () -> Unit,
     onClearFilesSelected: () -> Unit,
     swapToDownload: () -> Unit,
     onRefresh: () -> Unit,
-    submitError: (ErrorViewModel.ThrowableMessage) -> Unit
+    submitError: (ErrorViewModel.ThrowableMessage) -> Unit,
+    inputFieldColor: Color = itemColor(),
+    inputFieldContentColor: Color = onItemColor()
 ) {
-    Column(modifier = modifier) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
+    CardTitleLayout(modifier = modifier) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp)
+                .padding(top = 4.dp)
         ) {
-            SimpleTextInputField(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 4.dp),
-                value = packFilter.filterName,
-                onValueChange = { changePackFilter(packFilter.copy(filterName = it)) },
-                hint = {
-                    Text(
-                        text = stringResource(R.string.generic_search),
-                        style = TextStyle(color = LocalContentColor.current).copy(fontSize = 12.sp)
-                    )
-                },
-                color = inputFieldColor,
-                contentColor = inputFieldContentColor,
-                singleLine = true
-            )
-
-            AnimatedVisibility(
-                modifier = Modifier.height(IntrinsicSize.Min),
-                visible = isFilesSelected
-            ) {
-                Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    var expanded by remember { mutableStateOf(false) }
                     IconButton(
-                        onClick = onDeleteAll
+                        onClick = { expanded = !expanded }
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Delete,
-                            contentDescription = null
+                            painter = painterResource(R.drawable.ic_sort),
+                            contentDescription = stringResource(R.string.sort_by)
                         )
                     }
+                    SortByDropdownMenu(
+                        expanded = expanded,
+                        onClose = { expanded = false },
+                        enums = supportedSortByEnums,
+                        currentEnum = sortByEnum,
+                        onEnumChanged = onSortByChanged,
+                        isAscending = isAscending,
+                        onToggleSortOrder = onToggleSortOrder
+                    )
+                }
 
-                    IconButton(
-                        onClick = {
-                            if (isFilesSelected) onClearFilesSelected()
+                SimpleTextInputField(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 4.dp),
+                    value = packFilter.filterName,
+                    onValueChange = { changePackFilter(packFilter.copy(filterName = it)) },
+                    hint = {
+                        Text(
+                            text = stringResource(R.string.generic_search),
+                            style = TextStyle(color = LocalContentColor.current).copy(fontSize = 12.sp)
+                        )
+                    },
+                    color = inputFieldColor,
+                    contentColor = inputFieldContentColor,
+                    singleLine = true
+                )
+
+                AnimatedVisibility(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    visible = isFilesSelected
+                ) {
+                    Row {
+                        IconButton(
+                            onClick = onDeleteAll
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_delete_outlined),
+                                contentDescription = null
+                            )
                         }
+
+                        IconButton(
+                            onClick = onSelectAll
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_select_all),
+                                contentDescription = null
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (isFilesSelected) onClearFilesSelected()
+                            }
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_deselect),
+                                contentDescription = null
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        VerticalDivider(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(vertical = 12.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        )
+
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                }
+
+                val scrollState = rememberScrollState()
+                LaunchedEffect(Unit) {
+                    scrollState.scrollTo(scrollState.maxValue)
+                }
+                Row(
+                    modifier = Modifier
+                        .fadeEdge(
+                            state = scrollState,
+                            length = 32.dp,
+                            direction = EdgeDirection.Horizontal
+                        )
+                        .widthIn(max = this@BoxWithConstraints.maxWidth / 2)
+                        .horizontalScroll(scrollState),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ContentCheckBox(
+                        checked = packFilter.onlyShowValid,
+                        onCheckedChange = { changePackFilter(packFilter.copy(onlyShowValid = it)) }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Deselect,
-                            contentDescription = null
+                        Text(
+                            text = stringResource(R.string.manage_only_show_valid),
+                            style = MaterialTheme.typography.labelMedium
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
 
-                    VerticalDivider(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(vertical = 12.dp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    val taskBuilder = rememberMultipleUriImportTaskBuilder(
+                        id = "ContentManager.ResourcePacks.Import",
+                        targetDir = resourcePackDir,
+                        checkExtension = listOf("zip"),
+                        submitError = submitError,
+                        onImported = onRefresh
+                    )
+                    ImportMultipleFileButton(
+                        extension = "zip",
+                        progressUris = { uris ->
+                            TaskSystem.submitTask(
+                                taskBuilder(uris)
+                            )
+                        }
                     )
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    IconTextButton(
+                        onClick = swapToDownload,
+                        painter = painterResource(R.drawable.ic_download_2_filled),
+                        text = stringResource(R.string.generic_download)
+                    )
+
+                    IconButton(
+                        onClick = onRefresh
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_refresh),
+                            contentDescription = stringResource(R.string.generic_refresh)
+                        )
+                    }
                 }
             }
-
-            ContentCheckBox(
-                checked = packFilter.onlyShowValid,
-                onCheckedChange = { changePackFilter(packFilter.copy(onlyShowValid = it)) }
-            ) {
-                Text(
-                    text = stringResource(R.string.manage_only_show_valid),
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            ImportFileButton(
-                extension = "zip",
-                targetDir = resourcePackDir,
-                submitError = submitError,
-                onImported = onRefresh
-            )
-
-            IconTextButton(
-                onClick = swapToDownload,
-                imageVector = Icons.Default.Download,
-                text = stringResource(R.string.generic_download)
-            )
-
-            IconButton(
-                onClick = onRefresh
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = stringResource(R.string.generic_refresh)
-                )
-            }
         }
-
-        HorizontalDivider(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.onSurface
-        )
     }
 }
 
@@ -431,19 +600,21 @@ private fun ResourcePackHeader(
 private fun ResourcePackList(
     modifier: Modifier = Modifier,
     packList: List<ResourcePackInfo>?,
-    selectedFiles: List<File>,
-    removeFromSelected: (File) -> Unit,
-    addToSelected: (File) -> Unit,
-    itemColor: Color,
-    itemContentColor: Color,
+    selectedPacks: List<ResourcePackInfo>,
+    removeFromSelected: (ResourcePackInfo) -> Unit,
+    addToSelected: (ResourcePackInfo) -> Unit,
     updateOperation: (ResourcePackOperation) -> Unit
 ) {
     packList?.let { list ->
-        //如果列表是空的，则是由搜索导致的
         if (list.isNotEmpty()) {
+            val scrollState = rememberLazyListState()
             LazyColumn(
-                modifier = modifier,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                modifier = modifier.nonInteractiveScrollbar(
+                    state = scrollState.scrollIndicatorState!!,
+                    orientation = Orientation.Vertical,
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                state = scrollState,
             ) {
                 items(list) { pack ->
                     ResourcePackItemLayout(
@@ -451,19 +622,26 @@ private fun ResourcePackList(
                             .fillMaxWidth()
                             .padding(vertical = 6.dp),
                         resourcePackInfo = pack,
-                        selected = selectedFiles.contains(pack.file),
+                        selected = selectedPacks.contains(pack),
                         onClick = {
-                            if (selectedFiles.contains(pack.file)) {
-                                removeFromSelected(pack.file)
+                            if (selectedPacks.contains(pack)) {
+                                removeFromSelected(pack)
                             } else {
-                                addToSelected(pack.file)
+                                addToSelected(pack)
                             }
                         },
-                        itemColor = itemColor,
-                        itemContentColor = itemContentColor,
                         updateOperation = updateOperation
                     )
                 }
+            }
+        } else {
+            //如果列表是空的，则是由搜索导致的
+            //展示“无匹配项”文本
+            Box(modifier = Modifier.fillMaxSize()) {
+                ScalingLabel(
+                    modifier = Modifier.align(Alignment.Center),
+                    text = stringResource(R.string.generic_no_matching_items)
+                )
             }
         }
     } ?: run {
@@ -484,11 +662,10 @@ private fun ResourcePackItemLayout(
     resourcePackInfo: ResourcePackInfo,
     selected: Boolean,
     onClick: () -> Unit = {},
-    itemColor: Color,
-    itemContentColor: Color,
+    itemColor: Color = itemColor(),
+    itemContentColor: Color = onItemColor(),
     borderColor: Color = MaterialTheme.colorScheme.primary,
     shape: Shape = MaterialTheme.shapes.large,
-    shadowElevation: Dp = 1.dp,
     updateOperation: (ResourcePackOperation) -> Unit
 ) {
     val borderWidth by animateDpAsState(
@@ -513,7 +690,6 @@ private fun ResourcePackItemLayout(
         shape = shape,
         color = itemColor,
         contentColor = itemContentColor,
-        shadowElevation = shadowElevation
     ) {
         Row(
             modifier = Modifier.padding(all = 8.dp),
@@ -566,7 +742,7 @@ private fun ResourcePackItemLayout(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Info,
+                            painter = painterResource(R.drawable.ic_info_outlined),
                             contentDescription = stringResource(R.string.saves_manage_info)
                         )
                     }
@@ -612,7 +788,7 @@ private fun ResourcePackOperationMenu(
         ) {
             Icon(
                 modifier = Modifier.size(iconSize),
-                imageVector = Icons.Default.MoreHoriz,
+                painter = painterResource(R.drawable.ic_more_horiz),
                 contentDescription = stringResource(R.string.generic_more)
             )
         }
@@ -631,7 +807,7 @@ private fun ResourcePackOperationMenu(
                 leadingIcon = {
                     Icon(
                         modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Filled.Edit,
+                        painter = painterResource(R.drawable.ic_edit_filled),
                         contentDescription = stringResource(R.string.generic_rename)
                     )
                 },
@@ -647,7 +823,7 @@ private fun ResourcePackOperationMenu(
                 leadingIcon = {
                     Icon(
                         modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Filled.Delete,
+                        painter = painterResource(R.drawable.ic_delete_filled),
                         contentDescription = stringResource(R.string.generic_delete)
                     )
                 },

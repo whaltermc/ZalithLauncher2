@@ -1,9 +1,24 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.control
 
 import android.content.Context
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.movtery.layer_controller.layout.ControlLayout
 import com.movtery.layer_controller.layout.loadLayoutFromFile
 import com.movtery.layer_controller.layout.loadLayoutFromFileUncheck
@@ -15,12 +30,12 @@ import com.movtery.zalithlauncher.context.copyAssetFile
 import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.setting.AllSettings
 import com.movtery.zalithlauncher.utils.file.readString
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,6 +44,8 @@ import org.apache.commons.io.FileUtils
 import java.io.File
 import java.io.InputStream
 
+private const val TAG = "ControlManager"
+
 /**
  * 控制布局管理者
  */
@@ -36,20 +53,17 @@ object ControlManager {
     private val scope = CoroutineScope(Dispatchers.IO)
 
     private val _dataList = MutableStateFlow<List<ControlData>>(emptyList())
-    val dataList: StateFlow<List<ControlData>> = _dataList
-
-    /**
-     * 当前选择的控制布局
-     */
-    var selectedLayout by mutableStateOf<ControlData?>(null)
+    val dataList = _dataList.asStateFlow()
 
     private var currentJob: Job? = null
 
-    /**
-     * 是否正在刷新控制布局
-     */
-    var isRefreshing by mutableStateOf(false)
-        private set
+    private val _selectedLayout = MutableStateFlow<ControlData?>(null)
+    /** 当前选择的控制布局 */
+    val selectedLayout = _selectedLayout.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    /** 是否正在刷新控制布局 */
+    val isRefreshing = _isRefreshing.asStateFlow()
 
     /**
      * 获取一个新的布局文件文件，名称随机
@@ -76,7 +90,7 @@ object ControlManager {
     fun refresh() {
         currentJob?.cancel()
         currentJob = scope.launch(Dispatchers.IO) {
-            isRefreshing = true
+            _isRefreshing.update { true }
 
             _dataList.update { emptyList() }
             PathManager.DIR_CONTROL_LAYOUTS.listFiles()?.mapNotNull { file ->
@@ -90,10 +104,10 @@ object ControlManager {
                     runCatching {
                         loadLayoutFromFileUncheck(file)
                     }.onFailure { e ->
-                        lWarning("Failed to load control layout! file = $file", e)
+                        Logger.warning(TAG, "Failed to load control layout! file = $file", e)
                     }.getOrNull() ?: return@mapNotNull null
                 } catch (e: Exception) {
-                    lWarning("Failed to load control layout! file = $file", e)
+                    Logger.warning(TAG, "Failed to load control layout! file = $file", e)
                     return@mapNotNull null
                 }
 
@@ -112,7 +126,7 @@ object ControlManager {
             }
             checkSettings()
 
-            isRefreshing = false
+            _isRefreshing.update { false }
         }
     }
 
@@ -122,13 +136,15 @@ object ControlManager {
     private fun checkSettings() {
         val setting = AllSettings.controlLayout.getValue()
 
-        selectedLayout = _dataList.value.find { it.file.name == setting && it.isSupport }
+        val layout = _dataList.value.find { it.file.name == setting && it.isSupport }
             ?: dataList.value.firstOrNull { it.isSupport }
                 ?.also { AllSettings.controlLayout.save(it.file.name) }
 
-        if (selectedLayout == null) {
+        if (layout == null) {
             AllSettings.controlLayout.reset()
         }
+
+        _selectedLayout.update { layout }
     }
 
     /**
@@ -141,7 +157,7 @@ object ControlManager {
             val file = getNewRandomFile()
             context.copyAssetFile(fileName = "default_layout.json", output = file, overwrite = false)
         } catch (e: Exception) {
-            lWarning("Failed to unpack default control layout", e)
+            Logger.warning(TAG, "Failed to unpack default control layout", e)
         }
     }
 
@@ -151,7 +167,7 @@ object ControlManager {
     fun selectControl(data: ControlData) {
         if (!data.file.exists() || !data.isSupport) return
         AllSettings.controlLayout.save(data.file.name)
-        selectedLayout = data
+        _selectedLayout.update { data }
     }
 
     /**
@@ -182,7 +198,7 @@ object ControlManager {
                 layout.saveToFile(data.file)
             } catch (e: Exception) {
                 submitError(e)
-                FileUtils.deleteQuietly(data.file)
+//                FileUtils.deleteQuietly(data.file)
             }
             refresh()
         }
@@ -194,7 +210,8 @@ object ControlManager {
     suspend fun importControl(
         inputStream: InputStream,
         onSerializationError: (Exception) -> Unit,
-        catchedError: (Exception) -> Unit
+        catchedError: (Exception) -> Unit,
+        onFinished: () -> Unit = {},
     ) = withContext(Dispatchers.IO) {
         val file = getNewRandomFile()
         try {
@@ -203,6 +220,7 @@ object ControlManager {
                 val layout = loadLayoutFromString(jsonString)
                 layout.saveToFile(file)
             }
+            onFinished()
         } catch (e: SerializationException) {
             FileUtils.deleteQuietly(file)
             onSerializationError(e)

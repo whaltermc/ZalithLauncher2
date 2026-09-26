@@ -1,29 +1,49 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.theme
 
-import android.annotation.SuppressLint
 import android.os.Build
-import androidx.compose.animation.animateColor
-import androidx.compose.animation.core.Transition
-import androidx.compose.animation.core.updateTransition
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.State
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import com.google.android.material.color.utilities.CorePalette
-import com.google.android.material.color.utilities.DynamicScheme
-import com.google.android.material.color.utilities.Hct
-import com.google.android.material.color.utilities.Variant
+import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamicColorScheme
 import com.movtery.zalithlauncher.setting.AllSettings
-import com.movtery.zalithlauncher.utils.animation.getAnimateTween
+import com.movtery.zalithlauncher.setting.enums.isLauncherInDarkTheme
+import com.movtery.zalithlauncher.ui.theme.components.activeMaskView
+import com.movtery.zalithlauncher.utils.festival.Festival
+import com.movtery.zalithlauncher.utils.festival.LocalFestivals
+import com.movtery.zalithlauncher.viewmodel.BackgroundViewModel
+import com.movtery.zalithlauncher.viewmodel.LocalBackgroundViewModel
 
 private val embermireLight = lightColorScheme(
     primary = primaryLight.embermire,
@@ -557,204 +577,45 @@ private val verdantDawnDark = darkColorScheme(
     surfaceContainerHighest = surfaceContainerHighestDark.verdantDawn,
 )
 
-@SuppressLint("RestrictedApi")
-private fun customLight(color: Color): ColorScheme {
-    val hct = Hct.fromInt(color.toArgb())
-    val palettes = CorePalette.of(color.toArgb())
-
-    val scheme = DynamicScheme(
-        hct,
-        Variant.TONAL_SPOT,
-        false,
-        0.0,
-        palettes.a1,
-        palettes.a2,
-        palettes.a3,
-        palettes.n1,
-        palettes.n2
-    )
-
-    val hctNeutral = Hct.fromInt(scheme.surface)
-    //https://github.com/flutter/flutter/issues/137679
-    val surfaceDim               = Hct.from(hctNeutral.hue, hctNeutral.chroma, 87.0).toInt()
-    val surfaceBright            = Hct.from(hctNeutral.hue, hctNeutral.chroma, 98.0).toInt()
-    val surfaceContainerLowest   = Hct.from(hctNeutral.hue, hctNeutral.chroma, 100.0).toInt()
-    val surfaceContainerLow      = Hct.from(hctNeutral.hue, hctNeutral.chroma, 96.0).toInt()
-    val surfaceContainer         = Hct.from(hctNeutral.hue, hctNeutral.chroma, 94.0).toInt()
-    val surfaceContainerHigh     = Hct.from(hctNeutral.hue, hctNeutral.chroma, 92.0).toInt()
-    val surfaceContainerHighest  = Hct.from(hctNeutral.hue, hctNeutral.chroma, 90.0).toInt()
-
-    return lightColorScheme(
-        primary = Color(scheme.primary),
-        onPrimary = Color(scheme.onPrimary),
-        primaryContainer = Color(scheme.primaryContainer),
-        onPrimaryContainer = Color(scheme.onPrimaryContainer),
-        secondary = Color(scheme.secondary),
-        onSecondary = Color(scheme.onSecondary),
-        secondaryContainer = Color(scheme.secondaryContainer),
-        onSecondaryContainer = Color(scheme.onSecondaryContainer),
-        tertiary = Color(scheme.tertiary),
-        onTertiary = Color(scheme.onTertiary),
-        tertiaryContainer = Color(scheme.tertiaryContainer),
-        onTertiaryContainer = Color(scheme.onTertiaryContainer),
-        error = Color(scheme.error),
-        onError = Color(scheme.onError),
-        errorContainer = Color(scheme.errorContainer),
-        onErrorContainer = Color(scheme.onErrorContainer),
-        background = Color(scheme.background),
-        onBackground = Color(scheme.onBackground),
-        surface = Color(scheme.surface),
-        onSurface = Color(scheme.onSurface),
-        surfaceVariant = Color(scheme.surfaceVariant),
-        onSurfaceVariant = Color(scheme.onSurfaceVariant),
-        outline = Color(scheme.outline),
-        outlineVariant = Color(scheme.outlineVariant),
-        scrim = Color(scheme.scrim),
-        inverseSurface = Color(scheme.inverseSurface),
-        inverseOnSurface = Color(scheme.inverseOnSurface),
-        inversePrimary = Color(scheme.inversePrimary),
-        surfaceDim = Color(surfaceDim),
-        surfaceBright = Color(surfaceBright),
-        surfaceContainerLowest = Color(surfaceContainerLowest),
-        surfaceContainerLow = Color(surfaceContainerLow),
-        surfaceContainer = Color(surfaceContainer),
-        surfaceContainerHigh = Color(surfaceContainerHigh),
-        surfaceContainerHighest = Color(surfaceContainerHighest)
+private fun customLight(
+    color: Color,
+    style: PaletteStyle,
+): ColorScheme {
+    return dynamicColorScheme(
+        primary = color,
+        isDark = false,
+        style = style,
     )
 }
 
-@SuppressLint("RestrictedApi")
-private fun customDark(color: Color): ColorScheme {
-    val hct = Hct.fromInt(color.toArgb())
-    val palettes = CorePalette.of(color.toArgb())
-
-    val scheme = DynamicScheme(
-        hct,
-        Variant.TONAL_SPOT,
-        true,
-        0.0,
-        palettes.a1,
-        palettes.a2,
-        palettes.a3,
-        palettes.n1,
-        palettes.n2
-    )
-
-    val hctNeutral = Hct.fromInt(scheme.surface)
-    val surfaceDim                = Hct.from(hctNeutral.hue, hctNeutral.chroma, 6.0).toInt()
-    val surfaceBright             = Hct.from(hctNeutral.hue, hctNeutral.chroma, 24.0).toInt()
-    val surfaceContainerLowest    = Hct.from(hctNeutral.hue, hctNeutral.chroma, 4.0).toInt()
-    val surfaceContainerLow       = Hct.from(hctNeutral.hue, hctNeutral.chroma, 10.0).toInt()
-    val surfaceContainer          = Hct.from(hctNeutral.hue, hctNeutral.chroma, 12.0).toInt()
-    val surfaceContainerHigh      = Hct.from(hctNeutral.hue, hctNeutral.chroma, 17.0).toInt()
-    val surfaceContainerHighest   = Hct.from(hctNeutral.hue, hctNeutral.chroma, 22.0).toInt()
-
-    return lightColorScheme(
-        primary = Color(scheme.primary),
-        onPrimary = Color(scheme.onPrimary),
-        primaryContainer = Color(scheme.primaryContainer),
-        onPrimaryContainer = Color(scheme.onPrimaryContainer),
-        secondary = Color(scheme.secondary),
-        onSecondary = Color(scheme.onSecondary),
-        secondaryContainer = Color(scheme.secondaryContainer),
-        onSecondaryContainer = Color(scheme.onSecondaryContainer),
-        tertiary = Color(scheme.tertiary),
-        onTertiary = Color(scheme.onTertiary),
-        tertiaryContainer = Color(scheme.tertiaryContainer),
-        onTertiaryContainer = Color(scheme.onTertiaryContainer),
-        error = Color(scheme.error),
-        onError = Color(scheme.onError),
-        errorContainer = Color(scheme.errorContainer),
-        onErrorContainer = Color(scheme.onErrorContainer),
-        background = Color(scheme.background),
-        onBackground = Color(scheme.onBackground),
-        surface = Color(scheme.surface),
-        onSurface = Color(scheme.onSurface),
-        surfaceVariant = Color(scheme.surfaceVariant),
-        onSurfaceVariant = Color(scheme.onSurfaceVariant),
-        outline = Color(scheme.outline),
-        outlineVariant = Color(scheme.outlineVariant),
-        scrim = Color(scheme.scrim),
-        inverseSurface = Color(scheme.inverseSurface),
-        inverseOnSurface = Color(scheme.inverseOnSurface),
-        inversePrimary = Color(scheme.inversePrimary),
-        surfaceDim = Color(surfaceDim),
-        surfaceBright = Color(surfaceBright),
-        surfaceContainerLowest = Color(surfaceContainerLowest),
-        surfaceContainerLow = Color(surfaceContainerLow),
-        surfaceContainer = Color(surfaceContainer),
-        surfaceContainerHigh = Color(surfaceContainerHigh),
-        surfaceContainerHighest = Color(surfaceContainerHighest)
-    )
-}
-
-@Composable
-private fun animateColorScheme(target: ColorScheme): ColorScheme {
-    val transition = updateTransition(target, label = "ColorSchemeTransition")
-
-    @Composable
-    fun Transition<ColorScheme>.animate(
-        label: String,
-        colorProp: ColorScheme.() -> Color
-    ): State<Color> = animateColor(
-        transitionSpec = { getAnimateTween() },
-        label = label
-    ) { it.colorProp() }
-
-    return ColorScheme(
-        primary = transition.animate("primary") { primary }.value,
-        onPrimary = transition.animate("onPrimary") { onPrimary }.value,
-        primaryContainer = transition.animate("primaryContainer") { primaryContainer }.value,
-        onPrimaryContainer = transition.animate("onPrimaryContainer") { onPrimaryContainer }.value,
-        inversePrimary = transition.animate("inversePrimary") { inversePrimary }.value,
-        secondary = transition.animate("secondary") { secondary }.value,
-        onSecondary = transition.animate("onSecondary") { onSecondary }.value,
-        secondaryContainer = transition.animate("secondaryContainer") { secondaryContainer }.value,
-        onSecondaryContainer = transition.animate("onSecondaryContainer") { onSecondaryContainer }.value,
-        tertiary = transition.animate("tertiary") { tertiary }.value,
-        onTertiary = transition.animate("onTertiary") { onTertiary }.value,
-        tertiaryContainer = transition.animate("tertiaryContainer") { tertiaryContainer }.value,
-        onTertiaryContainer = transition.animate("onTertiaryContainer") { onTertiaryContainer }.value,
-        background = transition.animate("background") { background }.value,
-        onBackground = transition.animate("onBackground") { onBackground }.value,
-        surface = transition.animate("surface") { surface }.value,
-        onSurface = transition.animate("onSurface") { onSurface }.value,
-        surfaceVariant = transition.animate("surfaceVariant") { surfaceVariant }.value,
-        onSurfaceVariant = transition.animate("onSurfaceVariant") { onSurfaceVariant }.value,
-        surfaceTint = transition.animate("surfaceTint") { surfaceTint }.value,
-        inverseSurface = transition.animate("inverseSurface") { inverseSurface }.value,
-        inverseOnSurface = transition.animate("inverseOnSurface") { inverseOnSurface }.value,
-        error = transition.animate("error") { error }.value,
-        onError = transition.animate("onError") { onError }.value,
-        errorContainer = transition.animate("errorContainer") { errorContainer }.value,
-        onErrorContainer = transition.animate("onErrorContainer") { onErrorContainer }.value,
-        outline = transition.animate("outline") { outline }.value,
-        outlineVariant = transition.animate("outlineVariant") { outlineVariant }.value,
-        scrim = transition.animate("scrim") { scrim }.value,
-        surfaceBright = transition.animate("surfaceBright") { surfaceBright }.value,
-        surfaceContainer = transition.animate("surfaceContainer") { surfaceContainer }.value,
-        surfaceContainerHigh = transition.animate("surfaceContainerHigh") { surfaceContainerHigh }.value,
-        surfaceContainerHighest = transition.animate("surfaceContainerHighest") { surfaceContainerHighest }.value,
-        surfaceContainerLow = transition.animate("surfaceContainerLow") { surfaceContainerLow }.value,
-        surfaceContainerLowest = transition.animate("surfaceContainerLowest") { surfaceContainerLowest }.value,
-        surfaceDim = transition.animate("surfaceDim") { surfaceDim }.value,
+private fun customDark(
+    color: Color,
+    style: PaletteStyle,
+): ColorScheme {
+    return dynamicColorScheme(
+        primary = color,
+        isDark = true,
+        style = style,
     )
 }
 
 @Composable
 fun ZalithLauncherTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = isLauncherInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = true,
+    backgroundViewModel: BackgroundViewModel? = null,
+    festivals: List<Festival> = emptyList(),
     content: @Composable () -> Unit
 ) {
     val colorTheme = AllSettings.launcherColorTheme.state
     val customColorInt = AllSettings.launcherCustomColor.state
     val customColor = Color(customColorInt)
+    val customPaletteStyle = AllSettings.launcherCustomPaletteStyle.state
 
     val context = LocalContext.current
 
-    val targetColorScheme = remember(darkTheme, dynamicColor, colorTheme, customColor) {
+    val targetColorScheme = remember(darkTheme, dynamicColor, colorTheme, customColor, customPaletteStyle) {
         when {
             dynamicColor && colorTheme == ColorThemeType.DYNAMIC && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
                 if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -768,7 +629,10 @@ fun ZalithLauncherTheme(
                 ColorThemeType.VERDANTFIELD -> verdantFieldDark
                 ColorThemeType.URBAN_ASH -> urbanAshDark
                 ColorThemeType.VERDANT_DAWN -> verdantDawnDark
-                ColorThemeType.CUSTOM -> customDark(customColor)
+                ColorThemeType.CUSTOM -> customDark(
+                    color = customColor,
+                    style = customPaletteStyle
+                )
                 else -> embermireDark
             }
 
@@ -780,17 +644,44 @@ fun ZalithLauncherTheme(
                 ColorThemeType.VERDANTFIELD -> verdantFieldLight
                 ColorThemeType.URBAN_ASH -> urbanAshLight
                 ColorThemeType.VERDANT_DAWN -> verdantDawnLight
-                ColorThemeType.CUSTOM -> customLight(customColor)
+                ColorThemeType.CUSTOM -> customLight(
+                    color = customColor,
+                    style = customPaletteStyle
+                )
                 else -> embermireLight
             }
         }
     }
 
-    val animatedColorScheme = animateColorScheme(targetColorScheme)
+    var currentDarkTheme by remember { mutableStateOf(darkTheme) }
+    var currentDisplayScheme by remember { mutableStateOf(targetColorScheme) }
 
-    MaterialTheme(
-        colorScheme = animatedColorScheme,
-        typography = AppTypography,
-        content = content
-    )
+    LaunchedEffect(darkTheme, targetColorScheme) {
+        if (darkTheme != currentDarkTheme) {
+            context.activeMaskView(
+                maskComplete = {
+                    currentDarkTheme = darkTheme
+                    currentDisplayScheme = targetColorScheme
+                },
+                maskAnimFinish = {
+
+                }
+            )
+        } else {
+            currentDarkTheme = darkTheme
+            currentDisplayScheme = targetColorScheme
+        }
+    }
+
+    CompositionLocalProvider(
+        LocalBackgroundViewModel provides backgroundViewModel,
+        LocalFestivals provides festivals
+    ) {
+        MaterialExpressiveTheme(
+            colorScheme = currentDisplayScheme,
+            motionScheme = MotionScheme.expressive(),
+            typography = AppTypography,
+            content = content
+        )
+    }
 }

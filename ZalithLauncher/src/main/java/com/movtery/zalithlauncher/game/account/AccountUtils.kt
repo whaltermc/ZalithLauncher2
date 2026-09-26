@@ -1,11 +1,33 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.account
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.context.COPY_LABEL_DEVICE_CODE
 import com.movtery.zalithlauncher.coroutine.Task
 import com.movtery.zalithlauncher.coroutine.TaskSystem
 import com.movtery.zalithlauncher.game.account.auth_server.AuthServerHelper
+import com.movtery.zalithlauncher.game.account.auth_server.ResponseException
 import com.movtery.zalithlauncher.game.account.auth_server.data.AuthServer
 import com.movtery.zalithlauncher.game.account.auth_server.getAuthServeInfo
 import com.movtery.zalithlauncher.game.account.microsoft.AsyncStatus
@@ -17,26 +39,32 @@ import com.movtery.zalithlauncher.game.account.microsoft.fetchDeviceCodeResponse
 import com.movtery.zalithlauncher.game.account.microsoft.getTokenResponse
 import com.movtery.zalithlauncher.game.account.microsoft.microsoftAuthAsync
 import com.movtery.zalithlauncher.game.account.microsoft.toLocal
+import com.movtery.zalithlauncher.path.DOWNLOAD_OKHTTP_CLIENT
+import com.movtery.zalithlauncher.path.URL_USER_AGENT
+import com.movtery.zalithlauncher.ui.AndroidStringText
+import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.ui.screens.content.elements.MicrosoftLoginOperation
 import com.movtery.zalithlauncher.utils.copyText
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
+import com.movtery.zalithlauncher.utils.logging.Logger
+import com.movtery.zalithlauncher.utils.network.toLocal
 import com.movtery.zalithlauncher.viewmodel.ErrorViewModel
 import io.ktor.client.plugins.HttpRequestTimeoutException
-import io.ktor.client.plugins.ResponseException
-import io.ktor.http.HttpStatusCode
+import io.ktor.client.plugins.ResponseException as KtorResponseException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
+import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONObject
 import java.net.ConnectException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.UnknownHostException
 import java.nio.channels.UnresolvedAddressException
 import java.util.Locale
 import java.util.Objects
+import java.util.UUID
 import kotlin.coroutines.CoroutineContext
+
+private const val TAG = "AccountUtils"
 
 fun Account.isAuthServerAccount(): Boolean {
     return !isLocalAccount() && !Objects.isNull(otherBaseUrl) && otherBaseUrl != "0"
@@ -79,26 +107,39 @@ fun microsoftLogin(
     backToMain: () -> Unit,
     checkIfInWebScreen: () -> Boolean,
     updateOperation: (MicrosoftLoginOperation) -> Unit,
-    submitError: (ErrorViewModel.ThrowableMessage) -> Unit
+    showToast: (AndroidStringText, duration: Int) -> Unit,
+    submitError: (ErrorViewModel.ThrowableMessage) -> Unit,
+    onSuccess: () -> Unit = {}
 ) {
     val task = Task.runTask(
         id = MICROSOFT_LOGGING_TASK,
         dispatcher = Dispatchers.IO,
         task = { task ->
-            task.updateProgress(-1f, R.string.account_microsoft_fetch_device_code)
+            Logger.info(TAG, "Starting Microsoft account login")
+            task.updateProgress(-1f)
+            task.updateMessage(androidText(R.string.account_microsoft_fetch_device_code))
             val deviceCode = fetchDeviceCodeResponse(coroutineContext)
-            copyText(null, deviceCode.userCode, context)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.account_microsoft_coped_device_code, deviceCode.userCode),
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            Logger.debug(TAG, "Device code received, verification url: ${deviceCode.verificationUrl}, expires in ${deviceCode.expiresIn}s")
+            copyText(COPY_LABEL_DEVICE_CODE, deviceCode.userCode, context, false)
+            showToast(
+                androidText(R.string.account_microsoft_coped_device_code, deviceCode.userCode),
+                Toast.LENGTH_SHORT
+            )
             toWeb(deviceCode.verificationUrl)
-            task.updateProgress(-1f, R.string.account_microsoft_get_token, deviceCode.userCode)
-            val tokenResponse = getTokenResponse(deviceCode, coroutineContext) {
-                !checkIfInWebScreen()
+            task.updateProgress(-1f)
+            task.updateMessage(androidText(R.string.account_microsoft_get_token, deviceCode.userCode))
+            val tokenResponse = getTokenResponse(deviceCode, coroutineContext) { time ->
+                (!checkIfInWebScreen()).also { exit ->
+                    if (exit && time > 0) {
+                        //如果已退出网页，则视为用户想要退出登录
+                        //弹出提示
+                        Logger.debug(TAG, "User left the web page during device code polling")
+                        showToast(
+                            androidText(R.string.account_microsoft_exit_by_user),
+                            Toast.LENGTH_LONG
+                        )
+                    }
+                }
             }
             backToMain()
             val account = microsoftAuth(
@@ -106,38 +147,38 @@ fun microsoftLogin(
                 tokenResponse.refreshToken,
                 tokenResponse.accessToken,
                 coroutineContext = coroutineContext,
-                updateProgress = task::updateProgress
+                updateProgress = task::updateProgress,
+                updateMessage = task::updateMessage,
             )
-            task.updateMessage(R.string.account_logging_in_saving)
-            account.downloadSkin()
+            task.updateMessage(androidText(R.string.account_logging_in_saving))
+            account.downloadYggdrasil()
             AccountsManager.saveAccount(account)
+            AccountsManager.markSessionValidated(account)
+            Logger.info(TAG, "Microsoft account login successful: ${account.username}")
+            onSuccess()
         },
         onError = { th ->
+            if (th !is CancellationException) {
+                Logger.error(TAG, "Microsoft account login failed", th)
+            }
             when (th) {
-                is HttpRequestTimeoutException -> context.getString(R.string.account_logging_time_out)
-                is NotPurchasedMinecraftException -> toLocal(context)
-                is MinecraftProfileException -> th.toLocal(context)
-                is XboxLoginException -> th.toLocal(context)
-                is UnknownHostException, is UnresolvedAddressException -> context.getString(R.string.error_network_unreachable)
-                is ConnectException -> context.getString(R.string.error_connection_failed)
-                is ResponseException -> {
-                    val statusCode = th.response.status
-                    val res = when (statusCode) {
-                        HttpStatusCode.Unauthorized -> R.string.error_unauthorized
-                        HttpStatusCode.NotFound -> R.string.error_notfound
-                        else -> R.string.error_client_error
-                    }
-                    context.getString(res, statusCode)
-                }
+                is HttpRequestTimeoutException -> androidText(R.string.account_logging_time_out)
+                is NotPurchasedMinecraftException -> toLocal()
+                is MinecraftProfileException -> th.toLocal()
+                is XboxLoginException -> th.toLocal()
+                is UnknownHostException, is UnresolvedAddressException -> androidText(R.string.error_network_unreachable)
+                is ConnectException -> androidText(R.string.error_connection_failed)
+                is KtorResponseException -> th.toLocal()
                 is CancellationException -> { null }
                 else -> {
-                    val errorMessage = th.localizedMessage ?: th.message ?: th::class.qualifiedName ?: "Unknown error"
-                    context.getString(R.string.error_unknown, errorMessage)
+                    androidText(
+                        th.localizedMessage ?: th.message ?: th::class.qualifiedName ?: "Unknown error"
+                    )
                 }
             }?.let { message ->
                 submitError(
                     ErrorViewModel.ThrowableMessage(
-                        title = context.getString(R.string.account_logging_in_failed),
+                        title = androidText(R.string.account_logging_in_failed),
                         message = message
                     )
                 )
@@ -156,16 +197,35 @@ private suspend fun microsoftAuth(
     refreshToken: String,
     accessToken: String = "NULL",
     coroutineContext: CoroutineContext,
-    updateProgress: (Float, Int) -> Unit
+    updateProgress: (Float) -> Unit,
+    updateMessage: (AndroidStringText?) -> Unit,
 ): Account {
     return microsoftAuthAsync(authType, refreshToken, accessToken, coroutineContext) { asyncStatus ->
         when (asyncStatus) {
-            AsyncStatus.GETTING_ACCESS_TOKEN ->     updateProgress(0.25f, R.string.account_microsoft_getting_access_token)
-            AsyncStatus.GETTING_XBL_TOKEN ->        updateProgress(0.4f, R.string.account_microsoft_getting_xbl_token)
-            AsyncStatus.GETTING_XSTS_TOKEN ->       updateProgress(0.55f, R.string.account_microsoft_getting_xsts_token)
-            AsyncStatus.AUTHENTICATE_MINECRAFT ->   updateProgress(0.7f, R.string.account_microsoft_authenticate_minecraft)
-            AsyncStatus.VERIFY_GAME_OWNERSHIP ->    updateProgress(0.85f, R.string.account_microsoft_verify_game_ownership)
-            AsyncStatus.GETTING_PLAYER_PROFILE ->   updateProgress(1f, R.string.account_microsoft_getting_player_profile)
+            AsyncStatus.GETTING_ACCESS_TOKEN -> {
+                updateProgress(0.25f)
+                updateMessage(androidText(R.string.account_microsoft_getting_access_token))
+            }
+            AsyncStatus.GETTING_XBL_TOKEN -> {
+                updateProgress(0.4f)
+                updateMessage(androidText(R.string.account_microsoft_getting_xbl_token))
+            }
+            AsyncStatus.GETTING_XSTS_TOKEN -> {
+                updateProgress(0.55f)
+                updateMessage(androidText(R.string.account_microsoft_getting_xsts_token))
+            }
+            AsyncStatus.AUTHENTICATE_MINECRAFT -> {
+                updateProgress(0.7f)
+                updateMessage(androidText(R.string.account_microsoft_authenticate_minecraft))
+            }
+            AsyncStatus.VERIFY_GAME_OWNERSHIP -> {
+                updateProgress(0.85f)
+                updateMessage(androidText(R.string.account_microsoft_verify_game_ownership))
+            }
+            AsyncStatus.GETTING_PLAYER_PROFILE -> {
+                updateProgress(1f)
+                updateMessage(androidText(R.string.account_microsoft_getting_player_profile))
+            }
         }
     }
 }
@@ -202,7 +262,8 @@ suspend fun Account.refreshMicrosoft(
         refreshToken,
         accessToken,
         coroutineContext = coroutineContext,
-        updateProgress = task::updateProgress
+        updateProgress = task::updateProgress,
+        updateMessage = task::updateMessage,
     )
     apply {
         this.accessToken = newAcc.accessToken
@@ -235,14 +296,72 @@ fun otherLogin(
 }
 
 /**
+ * 该异常代表本地存储的凭据已被服务端拒绝，无法通过刷新恢复，需要重新登录账号
+ */
+fun Throwable.isReloginRequired(): Boolean {
+    return this is CredentialsExpiredException ||
+            (this is ResponseException && statusCode == 403)
+}
+
+fun accountErrorText(th: Throwable): AndroidStringText = when (th) {
+    is NotPurchasedMinecraftException -> toLocal()
+    is MinecraftProfileException -> th.toLocal()
+    is XboxLoginException -> th.toLocal()
+    is HttpRequestTimeoutException -> androidText(R.string.error_timeout)
+    is UnknownHostException, is UnresolvedAddressException -> androidText(R.string.error_network_unreachable)
+    is ConnectException -> androidText(R.string.error_connection_failed)
+    is KtorResponseException -> th.toLocal()
+    is ResponseException -> androidText(th.responseMessage)
+    else -> {
+        Logger.error(TAG, "An unknown exception was caught!", th)
+        androidText(
+            th.localizedMessage ?: th.message ?: th::class.qualifiedName ?: "Unknown error"
+        )
+    }
+}
+
+/**
  * 离线账号登陆
  */
-fun localLogin(userName: String) {
-    val account = Account(
-        username = userName,
-        accountType = AccountType.LOCAL.tag
-    )
+fun localLogin(userName: String, userUUID: String?) {
+    val account = if (userUUID != null) {
+        Account(
+            username = userName,
+            profileId = userUUID,
+            accountType = AccountType.LOCAL.tag
+        )
+    } else {
+        //如果不填，则使用默认生成的 uuid
+        Account(
+            username = userName,
+            accountType = AccountType.LOCAL.tag
+        )
+    }
     AccountsManager.saveAccount(account)
+}
+
+/**
+ * [From HMCL](https://github.com/HMCL-dev/HMCL/blob/5c2bb1cc251901dd471a8aa8048d90c22bb56916/HMCLCore/src/main/java/org/jackhuang/hmcl/util/gson/UUIDTypeAdapter.java#L55)
+ */
+private val regex = Regex("(\\w{8})(\\w{4})(\\w{4})(\\w{4})(\\w{12})")
+
+/**
+ * [From HMCL](https://github.com/HMCL-dev/HMCL/blob/5c2bb1cc251901dd471a8aa8048d90c22bb56916/HMCLCore/src/main/java/org/jackhuang/hmcl/util/gson/UUIDTypeAdapter.java#L57-L59)
+ */
+fun accountUUID(input: String): UUID {
+    val formatted = regex.replace(input, "$1-$2-$3-$4-$5")
+    return UUID.fromString(formatted)
+}
+
+fun accountUUID(input: UUID): String {
+    return input.toString().replace("-", "")
+}
+
+/**
+ * [From HMCL](https://github.com/HMCL-dev/HMCL/blob/5c2bb1cc251901dd471a8aa8048d90c22bb56916/HMCLCore/src/main/java/org/jackhuang/hmcl/auth/offline/OfflineAccountFactory.java#L79-L81)
+ */
+fun getUUIDFromUserName(username: String): UUID {
+    return UUID.nameUUIDFromBytes(("OfflinePlayer:$username").toByteArray(Charsets.UTF_8))
 }
 
 fun addOtherServer(
@@ -251,14 +370,22 @@ fun addOtherServer(
 ) {
     val task = Task.runTask(
         task = { task ->
-            task.updateProgress(-1f, R.string.account_other_login_getting_full_url)
-            val fullServerUrl = tryGetFullServerUrl(serverUrl)
+            task.updateProgress(-1f)
+            task.updateMessage(androidText(R.string.account_other_login_getting_full_url))
+            val isNide8 = isValidPassportId(serverUrl)
+            val fullServerUrl = if (isNide8) {
+                //可能是一个统一通行证服务器ID
+                "https://auth.mc-user.com:233/$serverUrl"
+            } else {
+                tryGetFullServerUrl(serverUrl)
+            }
             ensureActive()
-            task.updateProgress(0.5f, R.string.account_other_login_getting_server_info)
+            task.updateProgress(0.5f)
+            task.updateMessage(androidText(R.string.account_other_login_getting_server_info))
             runCatching {
                 getAuthServeInfo(fullServerUrl)
             }.onFailure { th ->
-                lError("Failed to get server info", th)
+                Logger.error(TAG, "Failed to get server info", th)
                 onThrowable(th)
             }.getOrNull()?.let { data ->
                 JSONObject(data).optJSONObject("meta")?.let { meta ->
@@ -269,17 +396,21 @@ fun addOtherServer(
                     val server = AuthServer(
                         serverName = meta.optString("serverName"),
                         baseUrl = fullServerUrl,
-                        register = meta.optJSONObject("links")?.optString("register") ?: ""
+                        register = if (!isNide8) {
+                            meta.optJSONObject("links")?.optString("register") ?: ""
+                        } else "https://login.mc-user.com:233/$serverUrl"
                     )
-                    task.updateProgress(0.8f, R.string.account_other_login_saving_server)
+                    task.updateProgress(0.8f)
+                    task.updateMessage(androidText(R.string.account_other_login_saving_server))
                     AccountsManager.saveAuthServer(server)
-                    task.updateProgress(1f, R.string.generic_done)
+                    task.updateProgress(1f)
+                    task.updateMessage(androidText(R.string.generic_done))
                 }
             }
         },
         onError = { e ->
             onThrowable(e)
-            lError("Failed to add auth server", e)
+            Logger.error(TAG, "Failed to add auth server", e)
         }
     )
 
@@ -289,13 +420,14 @@ fun addOtherServer(
 /**
  * 获取账号类型名称
  */
-fun getAccountTypeName(context: Context, account: Account): String {
+@Composable
+fun getAccountTypeName(account: Account): String {
     return if (account.isMicrosoftAccount()) {
-        context.getString(R.string.account_type_microsoft)
+        stringResource(R.string.account_type_microsoft)
     } else if (account.isAuthServerAccount()) {
         account.accountType ?: "Unknown"
     } else {
-        context.getString(R.string.account_type_local)
+        stringResource(R.string.account_type_local)
     }
 }
 
@@ -310,32 +442,27 @@ fun tryGetFullServerUrl(baseUrl: String): String {
     }
 
     val initialUrl = addHttpsIfMissing(baseUrl)
+
+    fun probe(url: String): Response =
+        DOWNLOAD_OKHTTP_CLIENT.newCall(
+            Request.Builder().url(url).header("User-Agent", URL_USER_AGENT).build()
+        ).execute()
+
     return runCatching {
         var finalUrl = initialUrl
 
-        fun open(url: String): HttpURLConnection =
-            (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5000
-                readTimeout = 5000
-            }
-
-        var conn: HttpURLConnection? = null
-        try {
-            conn = open(finalUrl)
-            conn.getHeaderField("x-authlib-injector-api-location")?.let { ali ->
-                val absoluteAli = URL(conn.url, ali).toString().addSlashIfMissing()
-                if (absoluteAli != finalUrl.addSlashIfMissing()) {
-                    conn.disconnect()
-                    conn = open(absoluteAli)
-                    finalUrl = absoluteAli
+        probe(finalUrl).use { response ->
+            response.header("x-authlib-injector-api-location")?.let { ali ->
+                val resolved = response.request.url.resolve(ali)?.toString()?.addSlashIfMissing()
+                if (resolved != null && resolved != finalUrl.addSlashIfMissing()) {
+                    finalUrl = resolved
                 }
             }
-            finalUrl.addSlashIfMissing()
-        } finally {
-            conn?.disconnect()
         }
+
+        finalUrl.addSlashIfMissing()
     }.getOrElse { e ->
-        lError("Failed to get full server url", e)
+        Logger.error(TAG, "Failed to get full server url", e)
         initialUrl
     }
 }
@@ -348,4 +475,13 @@ private fun addHttpsIfMissing(baseUrl: String): String {
     return if (!baseUrl.startsWith("http://", true) && !baseUrl.startsWith("https://")) {
         "https://$baseUrl".lowercase(Locale.ROOT)
     } else baseUrl.lowercase(Locale.ROOT)
+}
+
+/**
+ * 检查是否为32位16进制字符串，这可能是一个
+ * 统一通行证的服务器ID
+ */
+private fun isValidPassportId(id: String): Boolean {
+    val pattern = Regex("^[0-9a-f]{32}$", RegexOption.IGNORE_CASE)
+    return pattern.matches(id)
 }

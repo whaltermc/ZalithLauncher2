@@ -1,9 +1,27 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.mod
 
-import android.os.Parcel
 import android.os.Parcelable
 import com.movtery.zalithlauncher.game.download.assets.platform.ModLoaderDisplayLabel
 import com.movtery.zalithlauncher.game.download.assets.platform.Platform
+import kotlinx.parcelize.Parcelize
 
 /**
  * 模组在平台上对应的文件
@@ -11,43 +29,11 @@ import com.movtery.zalithlauncher.game.download.assets.platform.Platform
  * @param platform 所属平台
  * @param datePublished 发布日期
  */
+@Parcelize
 class ModFile(
     val id: String,
     val projectId: String,
     val platform: Platform,
     val loaders: Array<ModLoaderDisplayLabel>,
     val datePublished: String
-): Parcelable {
-    override fun describeContents(): Int = 0
-
-    override fun writeToParcel(dest: Parcel, flags: Int) {
-        dest.writeString(id)
-        dest.writeString(projectId)
-        dest.writeParcelable(platform, flags)
-        dest.writeParcelableArray(loaders, flags)
-        dest.writeString(datePublished)
-    }
-
-    companion object CREATOR: Parcelable.Creator<ModFile> {
-        override fun createFromParcel(source: Parcel): ModFile {
-            val id = source.readString()!!
-            val projectId = source.readString()!!
-            val platform = source.readParcelable<Platform>(Platform::class.java.classLoader)!!
-            val parcelableArray = source.readParcelableArray(ModLoaderDisplayLabel::class.java.classLoader)
-            val datePublished = source.readString()!!
-            return ModFile(
-                id = id,
-                projectId = projectId,
-                platform = platform,
-                loaders = Array(parcelableArray!!.size) { i ->
-                    parcelableArray[i] as ModLoaderDisplayLabel
-                },
-                datePublished = datePublished
-            )
-        }
-
-        override fun newArray(size: Int): Array<out ModFile?> {
-            return arrayOfNulls(size)
-        }
-    }
-}
+): Parcelable

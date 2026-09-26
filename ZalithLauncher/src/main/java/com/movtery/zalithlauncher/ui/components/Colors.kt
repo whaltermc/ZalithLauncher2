@@ -1,15 +1,28 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.components
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationDrawerItemColors
-import androidx.compose.material3.NavigationDrawerItemDefaults
-import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
+import com.movtery.zalithlauncher.setting.AllSettings
+import com.movtery.zalithlauncher.viewmodel.influencedByBackground
 
 /**
  * 降低颜色的饱和度
@@ -21,34 +34,19 @@ fun Color.desaturate(factor: Float): Color {
     return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
-@Composable
-fun itemLayoutColor(): Color {
-    return if (isSystemInDarkTheme()) {
-        //暗色模式下如果用 surfaceColorAtElevation(1.dp) 就会太黑太突出
-        MaterialTheme.colorScheme.surfaceVariant
-    } else {
-        //浅色模式下用这个颜色刚刚好
-        itemLayoutColorOnSurface(1.dp)
-    }
-}
-
-@Composable
-fun itemLayoutColorOnSurface(elevation: Dp = 2.dp): Color {
-    return MaterialTheme.colorScheme.surfaceColorAtElevation(elevation)
-}
-
 /**
- * 在 secondaryContainer 背景上使用的 NavigationDrawerItem 颜色
+ * 受背景内容影响的颜色，设置背景内容时，支持调整不透明度用于适配背景内容画面
+ * @param influencedAlpha 受影响时，调整的 alpha 值
  */
 @Composable
-fun secondaryContainerDrawerItemColors(): NavigationDrawerItemColors {
-    val colorScheme = MaterialTheme.colorScheme
-    return NavigationDrawerItemDefaults.colors(
-        selectedContainerColor = colorScheme.secondaryContainer.desaturate(0.5f),
-        unselectedContainerColor = Color.Transparent,
-        selectedIconColor = colorScheme.onSecondaryContainer,
-        unselectedIconColor = colorScheme.onSurface,
-        selectedTextColor = colorScheme.onSecondaryContainer,
-        unselectedTextColor = colorScheme.onSurface,
+fun influencedByBackgroundColor(
+    color: Color,
+    influencedAlpha: Float = AllSettings.launcherBackgroundOpacity.state.toFloat() / 100f,
+    enabled: Boolean = true
+): Color {
+    return influencedByBackground(
+        value = color,
+        influenced = color.copy(alpha = influencedAlpha),
+        enabled = enabled
     )
 }

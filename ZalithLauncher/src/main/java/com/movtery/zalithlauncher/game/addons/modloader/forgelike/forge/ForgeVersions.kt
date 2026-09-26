@@ -1,17 +1,35 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.addons.modloader.forgelike.forge
 
 import com.movtery.zalithlauncher.game.addons.mirror.MirrorSource
 import com.movtery.zalithlauncher.game.addons.mirror.SourceType
+import com.movtery.zalithlauncher.game.addons.mirror.orderedByGameSourcePreference
 import com.movtery.zalithlauncher.game.addons.mirror.runMirrorable
 import com.movtery.zalithlauncher.game.addons.modloader.ResponseTooShortException
 import com.movtery.zalithlauncher.path.GLOBAL_CLIENT
 import com.movtery.zalithlauncher.path.URL_USER_AGENT
-import com.movtery.zalithlauncher.setting.AllSettings
-import com.movtery.zalithlauncher.setting.enums.MirrorSourceType
-import com.movtery.zalithlauncher.utils.logging.Logger.lDebug
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.isChinaMainland
+import com.movtery.zalithlauncher.utils.logging.Logger
+import com.movtery.zalithlauncher.utils.network.safeBodyAsJson
+import com.movtery.zalithlauncher.utils.network.safeBodyAsText
 import com.movtery.zalithlauncher.utils.network.withRetry
-import io.ktor.client.call.body
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
@@ -36,12 +54,13 @@ object ForgeVersions {
      * 获取 Forge 版本列表
      */
     suspend fun fetchForgeList(mcVersion: String): List<ForgeVersion>? = withContext(Dispatchers.Default) {
-        runMirrorable(
-            when (AllSettings.fetchModLoaderSource.getValue()) {
-                MirrorSourceType.OFFICIAL_FIRST -> listOf(fetchListWithOfficial(mcVersion, 5), fetchListWithBMCLAPI(mcVersion, 5 + 30))
-                MirrorSourceType.MIRROR_FIRST -> listOf(fetchListWithBMCLAPI(mcVersion, 30), fetchListWithOfficial(mcVersion, 30 + 60))
-            }
-        )?.sortedWith { o1, o2 ->
+        if (isChinaMainland()) {
+            runMirrorable(
+                listOf(officialSource(mcVersion), bmclapiSource(mcVersion)).orderedByGameSourcePreference()
+            )
+        } else {
+            fetchListWithOfficial(mcVersion)
+        }?.sortedWith { o1, o2 ->
             o2.forgeBuildVersion.compareTo(o1.forgeBuildVersion)
         }
     }
@@ -49,10 +68,19 @@ object ForgeVersions {
     /**
      * 从官方源获取版本列表
      */
-    private fun fetchListWithOfficial(mcVersion: String, delayMillis: Long): MirrorSource<List<ForgeVersion>?> = MirrorSource(
-        delayMillis = delayMillis,
+    private fun officialSource(mcVersion: String): MirrorSource<List<ForgeVersion>?> = MirrorSource(
         type = SourceType.OFFICIAL
     ) {
+        fetchListWithOfficial(mcVersion)
+    }
+
+    private fun bmclapiSource(mcVersion: String): MirrorSource<List<ForgeVersion>?> = MirrorSource(
+        type = SourceType.BMCLAPI
+    ) {
+        fetchListWithBMCLAPI(mcVersion)
+    }
+
+    private suspend fun fetchListWithOfficial(mcVersion: String) = withContext(Dispatchers.IO) {
         val url = "https://files.minecraftforge.net/maven/net/minecraftforge/forge/index_${
             mcVersion.replace("-", "_")
         }.html"
@@ -64,7 +92,7 @@ object ForgeVersions {
                         headers {
                             append(HttpHeaders.UserAgent, "Mozilla/5.0/$URL_USER_AGENT")
                         }
-                    }.body<String>()
+                    }.safeBodyAsText()
                 }
             }
 
@@ -76,17 +104,16 @@ object ForgeVersions {
         } catch (e: ClientRequestException) {
             val statusCode = e.response.status
             if (statusCode == HttpStatusCode.NotFound) {
-                lDebug("Not found.")
+                Logger.debug(TAG, "Not found.")
                 null
             } else {
                 throw e
             }
         } catch (_: CancellationException) {
-            lDebug("Client cancelled.")
+            Logger.debug(TAG, "Client cancelled.")
             null
         } catch (e: Exception) {
-            lWarning("Failed to fetch forge list!", e)
-            throw e
+            throw RuntimeException("Failed to fetch forge list! url: $url", e)
         }
     }
 
@@ -94,16 +121,13 @@ object ForgeVersions {
      * 从镜像源获取版本列表
      * [Reference PCL2](https://github.com/Meloong-Git/PCL/blob/28ef67e/Plain%20Craft%20Launcher%202/Modules/Minecraft/ModDownload.vb#L702-L751)
      */
-    private fun fetchListWithBMCLAPI(mcVersion: String, delayMillis: Long): MirrorSource<List<ForgeVersion>?> = MirrorSource(
-        delayMillis = delayMillis,
-        type = SourceType.BMCLAPI
-    ) {
+    private suspend fun fetchListWithBMCLAPI(mcVersion: String): List<ForgeVersion>? {
         val url = "https://bmclapi2.bangbang93.com/forge/minecraft/${mcVersion.replace("-", "_")}" //兼容 Forge 1.7.10-pre4
 
-        try {
+        return try {
             val tokens: List<ForgeVersionToken> = withContext(Dispatchers.IO) {
                 withRetry(TAG, maxRetries = 2) {
-                    GLOBAL_CLIENT.get(url).body()
+                    GLOBAL_CLIENT.get(url).safeBodyAsJson()
                 }
             }
 
@@ -127,17 +151,16 @@ object ForgeVersions {
         } catch (e: ClientRequestException) {
             val statusCode = e.response.status
             if (statusCode == HttpStatusCode.NotFound) {
-                lDebug("Not found.")
+                Logger.debug(TAG, "Not found.")
                 null
             } else {
                 throw e
             }
         } catch (_: CancellationException) {
-            lDebug("Client cancelled.")
+            Logger.debug(TAG, "Client cancelled.")
             null
         } catch (e: Exception) {
-            lWarning("Failed to fetch forge list!", e)
-            throw e
+            throw RuntimeException("Failed to fetch forge list! url: $url", e)
         }
     }
 

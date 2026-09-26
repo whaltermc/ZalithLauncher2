@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.account.auth_server
 
 import android.content.Context
@@ -8,9 +26,12 @@ import com.movtery.zalithlauncher.game.account.Account
 import com.movtery.zalithlauncher.game.account.AccountsManager
 import com.movtery.zalithlauncher.game.account.auth_server.data.AuthServer
 import com.movtery.zalithlauncher.game.account.auth_server.models.AuthResult
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
+import com.movtery.zalithlauncher.ui.androidText
+import com.movtery.zalithlauncher.utils.logging.Logger
 import kotlinx.coroutines.Dispatchers
 import java.util.Objects
+
+private const val TAG = "AuthServerHelper"
 
 /**
  * 帮助登录外置账号（创建新的外置账号、仅登录当前外置账号）
@@ -59,11 +80,15 @@ class AuthServerHelper(
                 )
             },
             onError = { e ->
-                lError("An exception was encountered while performing the login task.", e)
+                Logger.error(TAG, "An exception was encountered while performing the login task.", e)
                 onFailed(e)
             },
             onFinally = onFinally
-        ).apply { updateMessage(R.string.account_logging_in, loggingString) }
+        ).apply {
+            updateMessage(
+                androidText(R.string.account_logging_in, loggingString)
+            )
+        }
     }
 
     private fun updateAccountInfo(
@@ -82,6 +107,42 @@ class AuthServerHelper(
             this.username = userName
             this.profileId = profileId
         }
+    }
+
+    /**
+     * 启动前自检
+     * @return 两者都被服务端拒绝时返回 false
+     */
+    suspend fun validateOrRefresh(context: Context, account: Account): Boolean {
+        if (apiServer.validate(context, account)) return true
+
+        return try {
+            val authResult = apiServer.refreshToken(context, account, select = true)
+            account.accessToken = authResult.accessToken
+            true
+        } catch (e: ResponseException) {
+            if (e.statusCode == 403) false else throw e
+        }
+    }
+
+    /**
+     * 使用账号密码重新登录并匹配当前角色，仅在 validate 与 refresh 均被拒绝时调用
+     */
+    suspend fun passwordLogin(context: Context, account: Account) {
+        val authResult = apiServer.authenticate(context, account.otherAccount!!, password)
+        val selected = authResult.selectedProfile
+        val matchedName: String
+        val matchedId: String
+        if (selected != null && selected.id == account.profileId) {
+            matchedId = selected.id
+            matchedName = selected.name
+        } else {
+            val profile = authResult.availableProfiles?.find { it.id == account.profileId }
+                ?: throw ResponseException(context.getString(R.string.account_other_login_role_not_found))
+            matchedId = profile.id
+            matchedName = profile.name
+        }
+        updateAccountInfo(account, authResult, matchedName, matchedId)
     }
 
     /**
@@ -167,10 +228,14 @@ class AuthServerHelper(
                 )
             },
             onError = { e ->
-                lError("An exception was encountered while performing the refresh task.", e)
+                Logger.error(TAG, "An exception was encountered while performing the refresh task.", e)
                 onFailed(e)
             }
-        ).apply { updateMessage(R.string.account_other_login_select_role_logging, account.username) }
+        ).apply {
+            updateMessage(
+                androidText(R.string.account_other_login_select_role_logging, account.username)
+            )
+        }
 
         TaskSystem.submitTask(task)
     }

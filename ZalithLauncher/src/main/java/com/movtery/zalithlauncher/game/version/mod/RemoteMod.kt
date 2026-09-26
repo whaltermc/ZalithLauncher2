@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.mod
 
 import androidx.compose.runtime.getValue
@@ -16,12 +34,14 @@ import com.movtery.zalithlauncher.game.download.assets.utils.ModTranslations
 import com.movtery.zalithlauncher.game.download.assets.utils.getMcMod
 import com.movtery.zalithlauncher.game.download.assets.utils.getTranslations
 import com.movtery.zalithlauncher.utils.file.calculateFileSha1
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+
+private const val TAG = "RemoteMod"
 
 class RemoteMod(
     val localMod: LocalMod
@@ -62,6 +82,11 @@ class RemoteMod(
     suspend fun load(loadFromCache: Boolean) {
         if (loadFromCache && isLoaded) return
 
+        if (!localMod.checkRemote) {
+            isLoaded = true
+            return
+        }
+
         if (!loadFromCache) {
             remoteFile = null
             projectInfo = null
@@ -94,11 +119,9 @@ class RemoteMod(
                     if (loadFromCache && cachedFile != null) {
                         remoteFile = cachedFile
                     } else {
-                        getVersionByLocalFile(file, sha1)?.let { version ->
-                            updateRemoteFile(version)
-                            remoteFile?.let { modFile ->
-                                modFileCache.encode(sha1, modFile, MMKV.ExpireInDay)
-                            }
+                        loadRemoteFile(sha1)?.let { modFile ->
+                            remoteFile = modFile
+                            modFileCache.encode(sha1, modFile, MMKV.ExpireInDay)
                         }
                     }
 
@@ -108,7 +131,11 @@ class RemoteMod(
                     } else {
                         ensureActive()
                         remoteFile?.let { modFile ->
-                            val project = getProjectByVersion(modFile.projectId, modFile.platform)
+                            val project = getProjectByVersion(
+                                projectId = modFile.projectId,
+                                platform = modFile.platform,
+                                printLog = false
+                            )
                             val newProjectInfo = ModProject(
                                 id = project.platformId(),
                                 platform = project.platform(),
@@ -127,7 +154,7 @@ class RemoteMod(
                     isLoaded = true
                 }.onFailure { e ->
                     if (e is CancellationException) return@onFailure
-                    lWarning("Failed to load project info for mod: ${file.name}", e)
+                    Logger.warning(TAG, "Failed to load project info for mod: ${file.name}", e)
                 }
             }
         } finally {
@@ -135,35 +162,42 @@ class RemoteMod(
         }
     }
 
-    private fun updateRemoteFile(
-        version: PlatformVersion
-    ) {
-        remoteFile = when (version) {
+    suspend fun loadRemoteFile(
+        sha1: String? = null
+    ): ModFile? {
+        val file = localMod.file
+        val sha10 = sha1 ?: calculateFileSha1(file)
+        val version = getVersionByLocalFile(file, sha10)
+        return version?.toModFile()
+    }
+
+    private fun PlatformVersion.toModFile(): ModFile {
+        return when (this) {
             is ModrinthVersion -> {
                 ModFile(
-                    id = version.id,
-                    projectId = version.projectId,
+                    id = id,
+                    projectId = projectId,
                     platform = Platform.MODRINTH,
-                    loaders = version.loaders.mapNotNull { loaderName ->
+                    loaders = loaders.mapNotNull { loaderName ->
                         ModrinthModLoaderCategory.entries.find { it.facetValue() == loaderName }
                     }.toTypedArray(),
-                    datePublished = version.datePublished
+                    datePublished = datePublished
                 )
             }
             is CurseForgeFile -> {
                 ModFile(
-                    id = version.id.toString(),
-                    projectId = version.modId.toString(),
+                    id = id.toString(),
+                    projectId = modId.toString(),
                     platform = Platform.CURSEFORGE,
-                    loaders = version.gameVersions.mapNotNull { loaderName ->
+                    loaders = gameVersions.mapNotNull { loaderName ->
                         CurseForgeModLoader.entries.find {
                             it.getDisplayName().equals(loaderName, true)
                         }
                     }.toTypedArray(),
-                    datePublished = version.fileDate
+                    datePublished = fileDate
                 )
             }
-            else -> error("Unknown version type: $version")
+            else -> error("Unknown version type: $this")
         }
     }
 }

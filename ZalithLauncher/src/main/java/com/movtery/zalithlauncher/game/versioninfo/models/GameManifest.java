@@ -1,4 +1,24 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.versioninfo.models;
+
+import static com.movtery.zalithlauncher.path.UrlManagerKt.URL_MINECRAFT_ASSETS_INDEX;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -8,21 +28,37 @@ import java.util.List;
 import java.util.Map;
 
 public class GameManifest {
+    @SerializedName("arguments")
     private Arguments arguments;
+    @SerializedName("assetIndex")
     private AssetIndex assetIndex;
+    @SerializedName("assets")
     private String assets;
+    @SerializedName("complianceLevel")
     private int complianceLevel;
+    @SerializedName("downloads")
     private Downloads downloads;
+    @SerializedName("id")
     private String id;
+    @SerializedName("javaVersion")
     private JavaVersion javaVersion;
+    @SerializedName("libraries")
     private List<Library> libraries;
+    @SerializedName("mainClass")
     private String mainClass;
+    @SerializedName("minecraftArguments")
     private String minecraftArguments;
+    @SerializedName("minimumLauncherVersion")
     private int minimumLauncherVersion;
+    @SerializedName("releaseTime")
     private String releaseTime;
+    @SerializedName("time")
     private String time;
+    @SerializedName("type")
     private String type;
+    @SerializedName("logging")
     private Logging logging;
+    @SerializedName("inheritsFrom")
     private String inheritsFrom; //作为非合并版本的标记
 
     public Arguments getArguments() {
@@ -33,7 +69,50 @@ public class GameManifest {
         this.arguments = arguments;
     }
 
+    /**
+     * [Modified from FCL](https://github.com/FCL-Team/FoldCraftLauncher/blob/6d88587eb62d84ae7ef26a9003640535265ff4f2/FCLCore/src/main/java/com/tungsten/fclcore/game/Version.java#L229-L267)
+     */
     public AssetIndex getAssetIndex() {
+        String assetsId = assets == null ? "legacy" : assets;
+
+        if (assetIndex == null) {
+            String hash;
+            switch (assetsId) {
+                case "1.8":
+                    hash = "f6ad102bcaa53b1a58358f16e376d548d44933ec";
+                    break;
+                case "14w31a":
+                    hash = "10a2a0e75b03cfb5a7196abbdf43b54f7fa61deb";
+                    break;
+                case "14w25a":
+                    hash = "32ff354a3be1c4dd83027111e6d79ee4d701d2c0";
+                    break;
+                case "1.7.4":
+                    hash = "545510a60f526b9aa8a38f9c0bc7a74235d21675";
+                    break;
+                case "1.7.10":
+                    hash = "1863782e33ce7b584fc45b037325a1964e095d3e";
+                    break;
+                case "1.7.3":
+                    hash = "f6cf726f4747128d13887010c2cbc44ba83504d9";
+                    break;
+                case "pre-1.6":
+                    hash = "3d8e55480977e32acd9844e545177e69a52f594b";
+                    break;
+                case "legacy":
+                default:
+                    assetsId = "legacy";
+                    hash = "770572e819335b6c0a053f8378ad88eda189fc14";
+            }
+
+            String url = URL_MINECRAFT_ASSETS_INDEX + "/" + hash + "/" + assetsId + ".json";
+            return new AssetIndex(assetsId, url);
+        } else {
+            return assetIndex;
+        }
+    }
+
+    public AssetIndex getRawAssetIndex() {
         return assetIndex;
     }
 
@@ -154,7 +233,9 @@ public class GameManifest {
     }
 
     public static class Arguments {
+        @SerializedName("game")
         private List<Object> game;
+        @SerializedName("jvm")
         private List<Object> jvm;
 
         public List<Object> getGame() {
@@ -175,11 +256,36 @@ public class GameManifest {
     }
 
     public static class AssetIndex {
+        @SerializedName("id")
         private String id;
+        @SerializedName("sha1")
         private String sha1;
+        @SerializedName("size")
         private long size;
+        @SerializedName("totalSize")
         private long totalSize;
+        @SerializedName("url")
         private String url;
+
+        public AssetIndex(String id, String url) {
+            this(id, null, url);
+        }
+
+        public AssetIndex(String id, String sha1, String url) {
+            this(id, sha1, 0, url);
+        }
+
+        public AssetIndex(String id, String sha1, long size, String url) {
+            this(id, sha1, size, 0, url);
+        }
+
+        public AssetIndex(String id, String sha1, long size, long totalSize, String url) {
+            this.id = id;
+            this.sha1 = sha1;
+            this.size = size;
+            this.totalSize = totalSize;
+            this.url = url;
+        }
 
         public String getId() {
             return id;
@@ -223,9 +329,11 @@ public class GameManifest {
     }
 
     public static class Downloads {
+        @SerializedName("client")
         private Client client;
         @SerializedName("client_mappings")
         private ClientMappings clientMappings;
+        @SerializedName("server")
         private Server server;
         @SerializedName("server_mappings")
         private ServerMappings serverMappings;
@@ -264,8 +372,11 @@ public class GameManifest {
     }
 
     public static class Client {
+        @SerializedName("sha1")
         private String sha1;
+        @SerializedName("size")
         private long size;
+        @SerializedName("url")
         private String url;
 
         public String getSha1() {
@@ -294,8 +405,11 @@ public class GameManifest {
     }
 
     public static class ClientMappings {
+        @SerializedName("sha1")
         private String sha1;
+        @SerializedName("size")
         private long size;
+        @SerializedName("url")
         private String url;
 
         public String getSha1() {
@@ -324,8 +438,11 @@ public class GameManifest {
     }
 
     public static class Server {
+        @SerializedName("sha1")
         private String sha1;
+        @SerializedName("size")
         private long size;
+        @SerializedName("url")
         private String url;
 
         public String getSha1() {
@@ -354,8 +471,11 @@ public class GameManifest {
     }
 
     public static class ServerMappings {
+        @SerializedName("sha1")
         private String sha1;
+        @SerializedName("size")
         private long size;
+        @SerializedName("url")
         private String url;
 
         public String getSha1() {
@@ -384,8 +504,11 @@ public class GameManifest {
     }
 
     public static class JavaVersion {
+        @SerializedName("component")
         private String component;
+        @SerializedName("majorVersion")
         private int majorVersion;
+        @SerializedName("version")
         private int version; // parameter used by LabyMod 4
 
         public String getComponent() {
@@ -409,12 +532,21 @@ public class GameManifest {
     }
 
     public static class Library {
+        @SerializedName("downloads")
         private DownloadsX downloads;
+        @SerializedName("name")
         private String name;
-        @Nullable private Map<OperatingSystem, String> natives;
+        @Nullable
+        @SerializedName("natives")
+        private Map<OperatingSystem, String> natives;
+        @SerializedName("rules")
         private List<Rule> rules;
+        @SerializedName("url")
         private String url;
-        @Nullable private String sha1;
+        @Nullable
+        @SerializedName("sha1")
+        private String sha1;
+        @SerializedName("size")
         private long size;
 
         public DownloadsX getDownloads() {
@@ -479,6 +611,7 @@ public class GameManifest {
     }
 
     public static class DownloadsX {
+        @SerializedName("artifact")
         private Artifact artifact;
 
         public Artifact getArtifact() {
@@ -490,9 +623,13 @@ public class GameManifest {
     }
 
     public static class Artifact {
+        @SerializedName("path")
         private String path;
+        @SerializedName("sha1")
         private String sha1;
+        @SerializedName("size")
         private long size;
+        @SerializedName("url")
         private String url;
 
         public String getPath() {
@@ -529,9 +666,13 @@ public class GameManifest {
     }
 
     public static class Rule {
+        @SerializedName("action")
         private Action action;
+        @SerializedName("os")
         private Os os;
+        @SerializedName("features")
         private Features features;
+        @SerializedName("value")
         private List<Object> value;
 
         public Action getAction() {
@@ -589,7 +730,9 @@ public class GameManifest {
     }
 
     public static class Os {
+        @SerializedName("name")
         private String name;
+        @SerializedName("arch")
         private String arch;
 
         public String getName() {
@@ -673,6 +816,7 @@ public class GameManifest {
     }
 
     public static class Logging {
+        @SerializedName("client")
         private LoggingClient client;
 
         public LoggingClient getClient() {
@@ -685,8 +829,11 @@ public class GameManifest {
     }
 
     public static class LoggingClient {
+        @SerializedName("argument")
         private String argument;
+        @SerializedName("file")
         private LoggingFile file;
+        @SerializedName("type")
         private String type;
 
         public String getArgument() {
@@ -715,9 +862,13 @@ public class GameManifest {
     }
 
     public static class LoggingFile {
+        @SerializedName("id")
         private String id;
+        @SerializedName("sha1")
         private String sha1;
+        @SerializedName("size")
         private long size;
+        @SerializedName("url")
         private String url;
 
         public String getId() {

@@ -1,26 +1,48 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.account
 
 import android.content.Context
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.coroutine.Task
 import com.movtery.zalithlauncher.coroutine.TaskSystem
 import com.movtery.zalithlauncher.database.AppDatabase
 import com.movtery.zalithlauncher.game.account.auth_server.data.AuthServer
 import com.movtery.zalithlauncher.game.account.auth_server.data.AuthServerDao
+import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.setting.AllSettings
-import com.movtery.zalithlauncher.utils.logging.Logger.lError
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
+import com.movtery.zalithlauncher.ui.androidText
+import com.movtery.zalithlauncher.utils.isInGreaterChina
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.network.isNetworkAvailable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.apache.commons.io.FileUtils
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+
+private const val TAG = "AccountManager"
 
 object AccountsManager {
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -28,19 +50,25 @@ object AccountsManager {
     //账号相关
     private val _accounts = CopyOnWriteArrayList<Account>()
     private val _accountsFlow = MutableStateFlow<List<Account>>(emptyList())
-    val accountsFlow: StateFlow<List<Account>> = _accountsFlow
+    val accountsFlow = _accountsFlow.asStateFlow()
 
     private val _currentAccountFlow = MutableStateFlow<Account?>(null)
-    val currentAccountFlow: StateFlow<Account?> = _currentAccountFlow
+    val currentAccountFlow = _currentAccountFlow.asStateFlow()
 
     //认证服务器
     private val _authServers = CopyOnWriteArrayList<AuthServer>()
     private val _authServersFlow = MutableStateFlow<List<AuthServer>>(emptyList())
-    val authServersFlow: StateFlow<List<AuthServer>> = _authServersFlow
+    val authServersFlow = _authServersFlow.asStateFlow()
 
-    /** 控制刷新所有账号头像的变量 */
-    var refreshAccountAvatar by mutableStateOf(false)
-        private set
+    private val _refreshWardrobe = MutableStateFlow(false)
+    /** 控制刷新所有账号衣橱 */
+    val refreshWardrobe = _refreshWardrobe.asStateFlow()
+
+    private val _isOffline = MutableStateFlow(false)
+    val isOffline = _isOffline
+
+    //本次启动器会话内已通过服务端校验的账号
+    private val sessionValidatedAccounts: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private lateinit var database: AppDatabase
     private lateinit var accountDao: AccountDao
@@ -65,10 +93,10 @@ object AccountsManager {
     }
 
     /**
-     * 刷新所有账号的头像
+     * 刷新所有账号的衣橱
      */
-    fun refreshAccountsAvatar() {
-        this.refreshAccountAvatar = !this.refreshAccountAvatar
+    fun refreshWardrobe() {
+        _refreshWardrobe.update { !it }
     }
 
     private suspend fun suspendReloadAccounts() {
@@ -83,12 +111,12 @@ object AccountsManager {
         _accountsFlow.value = _accounts.toList()
 
         if (_accounts.isNotEmpty() && !isAccountExists(AllSettings.currentAccount.getValue())) {
-            setCurrentAccount(_accounts[0])
+            setCurrentAccountInternal(_accounts[0])
         }
 
         refreshCurrentAccountState()
 
-        lInfo("Loaded ${_accounts.size} accounts")
+        Logger.info(TAG, "Loaded ${_accounts.size} accounts")
     }
 
     /**
@@ -103,7 +131,7 @@ object AccountsManager {
             _authServers.sortWith { o1, o2 -> o1.serverName.compareTo(o2.serverName) }
             _authServersFlow.value = _authServers.toList()
 
-            lInfo("Loaded ${_authServers.size} auth servers")
+            Logger.info(TAG, "Loaded ${_authServers.size} auth servers")
         }
     }
 
@@ -154,8 +182,9 @@ object AccountsManager {
                 context = context,
                 account = account,
                 onSuccess = { account, task ->
-                    task.updateMessage(R.string.account_logging_in_saving)
-                    account.downloadSkin()
+                    task.updateMessage(androidText(R.string.account_logging_in_saving))
+                    account.downloadYggdrasil()
+                    markSessionValidated(account)
                     suspendSaveAccount(account)
                 },
                 onFailed = onFailed
@@ -164,9 +193,29 @@ object AccountsManager {
     }
 
     /**
+     * 该账号在本次会话中是否已通过服务端校验
+     */
+    fun isSessionValidated(account: Account): Boolean =
+        sessionValidatedAccounts.contains(account.uniqueUUID)
+
+    fun markSessionValidated(account: Account) {
+        sessionValidatedAccounts.add(account.uniqueUUID)
+    }
+
+    /**
+     * 是否需要执行启动前的账号校验
+     */
+    fun isLaunchCheckNeeded(account: Account): Boolean = when {
+        account.isNoLoginRequired() -> false
+        account.isMicrosoftAccount() -> !isSessionValidated(account) ||
+                System.currentTimeMillis() > account.expiresAt - 5 * 60 * 1000
+        else -> !isSessionValidated(account)
+    }
+
+    /**
      * 获取当前已登录的账号
      */
-    fun getCurrentAccount(): Account? {
+    private fun getCurrentAccount(): Account? {
         return _accounts.find {
             it.uniqueUUID == AllSettings.currentAccount.getValue()
         } ?: _accounts.firstOrNull()
@@ -176,12 +225,30 @@ object AccountsManager {
      * 设置并保存当前账号
      */
     fun setCurrentAccount(account: Account) {
-        AllSettings.currentAccount.save(account.uniqueUUID)
+        setCurrentAccountInternal(account)
         refreshCurrentAccountState()
     }
 
+    private fun setCurrentAccountInternal(account: Account) {
+        AllSettings.currentAccount.save(account.uniqueUUID)
+    }
+
+    /**
+     * 刷新当前账号，同时刷新非中国大陆地区的正版状态
+     */
     private fun refreshCurrentAccountState() {
-        _currentAccountFlow.value = getCurrentAccount()
+        val currentAccount = getCurrentAccount()
+        val isOffline = checkLimit()
+        _currentAccountFlow.update {
+            //若处于非正版状态，不允许使用账号
+            if (isOffline) null else currentAccount
+        }
+        _isOffline.update { isOffline }
+    }
+
+    private fun checkLimit(): Boolean {
+        val circumventLimit = File(PathManager.DIR_FILES_EXTERNAL, "circumventLimit")
+        return !circumventLimit.exists() && !isInGreaterChina() && !hasMicrosoftAccount()
     }
 
     /**
@@ -199,9 +266,11 @@ object AccountsManager {
     suspend fun suspendSaveAccount(account: Account) {
         runCatching {
             accountDao.saveAccount(account)
-            lInfo("Saved account: ${account.username}")
+            Logger.info(TAG, "Saved account: ${account.username}")
+            //同时设置当前账号
+            setCurrentAccountInternal(account)
         }.onFailure { e ->
-            lError("Failed to save account: ${account.username}", e)
+            Logger.error(TAG, "Failed to save account: ${account.username}", e)
         }
         suspendReloadAccounts()
     }
@@ -224,9 +293,9 @@ object AccountsManager {
     suspend fun saveAuthServer(server: AuthServer) {
         runCatching {
             authServerDao.saveServer(server)
-            lInfo("Saved auth server: ${server.serverName} -> ${server.baseUrl}")
+            Logger.info(TAG, "Saved auth server: ${server.serverName} -> ${server.baseUrl}")
         }.onFailure { e ->
-            lError("Failed to save auth server: ${server.serverName}", e)
+            Logger.error(TAG, "Failed to save auth server: ${server.serverName}", e)
         }
         reloadAuthServers()
     }

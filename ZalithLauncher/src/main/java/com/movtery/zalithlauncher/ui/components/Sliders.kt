@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.components
 
 import androidx.annotation.IntRange
@@ -9,9 +27,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.ArrowRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -21,6 +36,7 @@ import androidx.compose.material3.SliderColors
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -29,8 +45,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import com.movtery.zalithlauncher.R
+import com.movtery.zalithlauncher.ui.screens.content.elements.DisabledAlpha
 import com.movtery.zalithlauncher.utils.math.addBigDecimal
 import com.movtery.zalithlauncher.utils.math.subtractBigDecimal
 import java.text.DecimalFormat
@@ -79,7 +98,8 @@ fun SimpleTextSlider(
     }
 
     Row(
-        modifier = modifier
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         if (shorter) {
             IndicatorSlider(
@@ -104,7 +124,7 @@ fun SimpleTextSlider(
         }
         Surface(
             modifier = Modifier
-                .alpha(alpha = if (enabled) 1f else 0.5f)
+                .alpha(alpha = if (enabled) 1f else DisabledAlpha)
                 .padding(start = 12.dp)
                 .align(Alignment.CenterVertically),
             shape = MaterialTheme.shapes.medium,
@@ -146,7 +166,7 @@ fun SimpleTextSlider(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowLeft,
+                            painter = painterResource(R.drawable.ic_arrow_left_rounded),
                             contentDescription = null
                         )
                     }
@@ -164,7 +184,7 @@ fun SimpleTextSlider(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowRight,
+                            painter = painterResource(R.drawable.ic_arrow_right_rounded),
                             contentDescription = null
                         )
                     }
@@ -195,14 +215,20 @@ fun IndicatorSlider(
     Layout(
         modifier = modifier,
         content = {
-            Slider(
+            val state = rememberSliderState(
                 value = value,
-                onValueChange = onValueChange,
-                valueRange = valueRange,
+                steps = steps,
+                trackRange = valueRange,
+            )
+            Slider(
+                state = state,
+                onValueChange = { value ->
+                    onValueChange(value)
+                    state.value = value
+                },
                 enabled = enabled,
                 onValueChangeFinished = onValueChangeFinished,
                 interactionSource = interactionSource,
-                steps = steps,
                 colors = colors,
                 thumb = {
                     SliderDefaults.Thumb(

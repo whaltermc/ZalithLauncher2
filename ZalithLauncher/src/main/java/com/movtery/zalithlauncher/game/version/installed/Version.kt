@@ -1,60 +1,145 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.version.installed
 
 import android.content.Context
-import android.os.Parcel
 import android.os.Parcelable
+import androidx.annotation.Keep
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.google.gson.JsonObject
 import com.movtery.zalithlauncher.BuildConfig
+import com.movtery.zalithlauncher.BuildKeys
 import com.movtery.zalithlauncher.context.GlobalContext
-import com.movtery.zalithlauncher.game.path.getGameHome
+import com.movtery.zalithlauncher.game.launch.LogName
 import com.movtery.zalithlauncher.game.path.getVersionsHome
+import com.movtery.zalithlauncher.game.support.touch_controller.VibrationHandler
 import com.movtery.zalithlauncher.path.PathManager
 import com.movtery.zalithlauncher.setting.AllSettings
-import com.movtery.zalithlauncher.utils.getInt
+import com.movtery.zalithlauncher.setting.unit.getOrMin
+import com.movtery.zalithlauncher.ui.screens.content.elements.QuickPlay
+import com.movtery.zalithlauncher.utils.GSON
+import com.movtery.zalithlauncher.utils.file.readText
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.platform.getMaxMemoryForSettings
 import com.movtery.zalithlauncher.utils.string.isNotEmptyOrBlank
-import com.movtery.zalithlauncher.utils.toBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.parcelize.IgnoredOnParcel
+import kotlinx.parcelize.Parcelize
 import java.io.File
+import java.util.zip.ZipFile
 import kotlin.math.min
+
+private const val TAG = "Version"
 
 /**
  * Minecraft 版本，由版本名称进行区分
  * @param versionName 版本名称
+ * @param gameHome 版本所在的游戏目录（.minecraft）
  * @param versionConfig 独立版本的配置
  * @param versionInfo 版本信息
  * @param isValid 版本的有效性
  * @param versionType 版本的类型
  */
+@Keep
+@Parcelize
 class Version(
     private val versionName: String,
+    private val gameHome: String,
     private val versionConfig: VersionConfig,
     private val versionInfo: VersionInfo?,
     private val isValid: Boolean,
-    val versionType: VersionType
-): Parcelable {
+    val versionType: VersionType,
     /**
      * 控制是否将当前账号视为离线账号启动游戏
      */
-    var offlineAccountLogin: Boolean = false
+    var offlineAccountLogin: Boolean = false,
+    /**
+     * 快速启动
+     */
+    var quickPlaySingle: QuickPlay? = null,
+    /**
+     * 启用控制代理
+     */
+    var enableTouchProxy: Boolean = false
+): Parcelable {
+    /**
+     * 当前版本是否被置顶
+     */
+    @IgnoredOnParcel
+    var pinnedState by mutableStateOf(versionConfig.pinned)
+        private set
 
     /**
-     * 快速启动单人游戏（存档名），仅支持  1.20+  23w14a+
+     * 设置版本的置顶状态并保存
      */
-    var quickPlaySingle: String? = null
+    fun setPinnedAndSave(value: Boolean) {
+        this.versionConfig.setPinnedAndSave(value) { state ->
+            this.pinnedState = state
+        }
+    }
+
+    /**
+     * @return 版本所在的游戏目录（.minecraft）
+     */
+    fun getGameHome(): String = gameHome
 
     /**
      * @return 获取版本所属的版本文件夹
      */
-    fun getVersionsFolder(): String = getVersionsHome()
+    fun getVersionsFolder(): String = getVersionsHome(gameHome)
 
     /**
      * @return 获取版本文件夹
      */
-    fun getVersionPath(): File = File(getVersionsHome(), versionName)
+    fun getVersionPath(): File = File(getVersionsFolder(), versionName)
 
     /**
      * @return 获取版本名称
      */
-    fun getVersionName(): String = getVersionPath().name
+    fun getVersionName(): String = versionName
+
+    /**
+     * @return 启动器版本标识文件夹
+     */
+    fun getZalithVersionPath(): File = File(getVersionPath(), BuildKeys.LAUNCHER_IDENTIFIER)
+
+    /**
+     * @return 游戏的上一次运行日志
+     */
+    fun getLatestLog(): File = File(getZalithVersionPath(), LogName.GAME.fileName)
+
+    /**
+     * @return 获取版本设置的图标
+     */
+    fun getVersionIconFile(): File = File(getZalithVersionPath(), "VersionIcon.png")
+
+    /**
+     * 获取继承（inheritsFrom）版本的客户端 jar 文件
+     * @param inheritsFrom 版本声明的继承目标
+     * @return 继承目标未声明或文件不存在时返回 null
+     */
+    fun getInheritedClientJar(inheritsFrom: String?): File? =
+        inheritsFrom?.let { File(File(getVersionsFolder(), it), "$it.jar") }
+            ?.takeIf { jar -> jar.exists() }
 
     /**
      * @return 获取客户端 jar 文件
@@ -106,10 +191,10 @@ class Version(
      * @return 获取版本的游戏文件夹路径（若开启了版本隔离，则路径为版本文件夹）
      */
     fun getGameDir(): File {
-        return if (versionConfig.isIsolation()) versionConfig.getVersionPath()
+        return if (versionConfig.isIsolation()) getVersionPath()
         //未开启版本隔离可以使用自定义路径，如果自定义路径为空（则为未设置），那么返回默认游戏路径（.minecraft/）
         else if (versionConfig.customPath.isNotEmpty()) File(versionConfig.customPath)
-        else File(getGameHome())
+        else File(gameHome)
     }
 
     private fun String.getValueOrDefault(default: String): String = this.takeIf { it.isNotEmpty() } ?: default
@@ -117,6 +202,8 @@ class Version(
     fun getRenderer(): String = versionConfig.renderer.getValueOrDefault(AllSettings.renderer.getValue())
 
     fun getDriver(): String = versionConfig.driver.getValueOrDefault(AllSettings.vulkanDriver.getValue())
+
+    fun getGraphicsApi(): GraphicsApi = versionConfig.graphicsApi ?: AllSettings.graphicsApi.getValue()
 
     fun getControlPath(): File? = versionConfig.control
         .getValueOrDefault(AllSettings.controlLayout.getValue())
@@ -127,6 +214,8 @@ class Version(
 
     fun getJvmArgs(): String = versionConfig.jvmArgs
 
+    fun getGameArgs(): String = versionConfig.gameArgs
+
     fun getCustomInfo(): String = versionConfig.customInfo.getValueOrDefault(AllSettings.versionCustomInfo.getValue())
         .replace("[zl_version]", BuildConfig.VERSION_NAME)
 
@@ -134,42 +223,41 @@ class Version(
 
     fun getRamAllocation(context: Context = GlobalContext): Int = versionConfig.ramAllocation.takeIf { it >= 256 }?.let {
         min(it, getMaxMemoryForSettings(context))
-    } ?: AllSettings.ramAllocation.getValue()
-
-    fun isTouchProxyEnabled(): Boolean = versionConfig.enableTouchProxy
+    } ?: AllSettings.ramAllocation.getOrMin()
 
     fun getTouchVibrateDuration(): Int? = versionConfig.touchVibrateDuration.takeIf { it >= 80 }
 
-    override fun describeContents(): Int = 0
+    fun getTouchVibrateKind(): VibrationHandler.VibrateKind = versionConfig.touchVibrateKind ?: VibrationHandler.VibrateKind.default
+}
 
-    override fun writeToParcel(dest: Parcel, flags: Int) {
-        dest.writeString(versionName)
-        dest.writeParcelable(versionConfig, flags)
-        dest.writeParcelable(versionInfo, flags)
-        dest.writeInt(isValid.getInt())
-        dest.writeInt(offlineAccountLogin.getInt())
-        dest.writeString(quickPlaySingle)
-        dest.writeString(versionType.name)
-    }
+/** 通过版本文件夹获取启动器版本标识文件夹 */
+fun getZalithVersionPath(versionFolder: File): File = File(versionFolder, BuildKeys.LAUNCHER_IDENTIFIER)
 
-    companion object CREATOR : Parcelable.Creator<Version> {
-        override fun createFromParcel(parcel: Parcel): Version {
-            val versionName = parcel.readString()!!
-            val versionConfig = parcel.readParcelable<VersionConfig>(VersionConfig::class.java.classLoader)!!
-            val versionInfo = parcel.readParcelable<VersionInfo?>(VersionInfo::class.java.classLoader)
-            val isValid = parcel.readInt().toBoolean()
-            val offlineAccount = parcel.readInt().toBoolean()
-            val quickPlaySingle = parcel.readString()
-            val versionType = VersionType.valueOf(parcel.readString()!!)
+/** 通过版本文件夹获取版本图标文件 */
+fun getVersionIconFile(versionFolder: File): File = File(getZalithVersionPath(versionFolder), "VersionIcon.png")
 
-            return Version(versionName, versionConfig, versionInfo, isValid, versionType).apply {
-                offlineAccountLogin = offlineAccount
-                this.quickPlaySingle = quickPlaySingle
+/** 26.2-snapshot-1 */
+private const val VULKAN_RUNTIME_WORLD_VERSION = 4883
+
+/**
+ * 游戏是否带有 Vulkan 后端
+ */
+suspend fun Version.hasVulkanBackend(): Boolean {
+    return withContext(Dispatchers.IO) {
+        val clientJar = getClientJar()
+        if (!clientJar.exists()) return@withContext false
+        runCatching {
+            //在客户端中读取数据版本
+            ZipFile(clientJar).use { zip ->
+                val worldVersion = zip.getEntry("version.json")
+                    ?.readText(zip)
+                    ?.let { GSON.fromJson(it, JsonObject::class.java) }
+                    //https://zh.minecraft.wiki/w/%E7%89%88%E6%9C%AC%E4%BF%A1%E6%81%AF%E6%96%87%E4%BB%B6%E6%A0%BC%E5%BC%8F
+                    ?.get("world_version")?.asInt
+                worldVersion != null && worldVersion >= VULKAN_RUNTIME_WORLD_VERSION
             }
-        }
-
-        override fun newArray(size: Int): Array<Version?> {
-            return arrayOfNulls(size)
-        }
+        }.onFailure { e ->
+            Logger.warning(TAG, "Unable to determine the data version of this client Jar, possibly due to an outdated version.", e)
+        }.getOrDefault(false)
     }
 }

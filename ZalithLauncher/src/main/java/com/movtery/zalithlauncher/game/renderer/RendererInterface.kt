@@ -1,6 +1,22 @@
-package com.movtery.zalithlauncher.game.renderer
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
 
-import com.movtery.zalithlauncher.game.plugin.renderer.RendererPlugin
+package com.movtery.zalithlauncher.game.renderer
 
 /**
  * 启动器渲染器实现
@@ -37,6 +53,16 @@ interface RendererInterface {
     fun getMaxMCVersion(): String? = null
 
     /**
+     * 获取渲染器最低兼容版本的展示用版本号
+     */
+    fun getDisplayMinMCVersion(): String? = getMinMCVersion()
+
+    /**
+     * 获取渲染器最高兼容版本的展示用版本号
+     */
+    fun getDisplayMaxMCVersion(): String? = getMaxMCVersion()
+
+    /**
      * 获取渲染器的环境变量
      */
     fun getRendererEnv(): Lazy<Map<String, String>>
@@ -55,20 +81,4 @@ interface RendererInterface {
      * 获取EGL名称
      */
     fun getRendererEGL(): String? = null
-}
-
-/**
- * 转换为渲染器通用接口
- */
-fun RendererPlugin.toInterface() = object : RendererInterface {
-    override fun getRendererId(): String = id
-    override fun getUniqueIdentifier(): String = uniqueIdentifier
-    override fun getRendererName(): String = displayName
-    override fun getRendererSummary(): String? = summary
-    override fun getMinMCVersion(): String? = minMCVer
-    override fun getMaxMCVersion(): String? = maxMCVer
-    override fun getRendererEnv(): Lazy<Map<String, String>> = lazy { env }
-    override fun getDlopenLibrary(): Lazy<List<String>> = lazy { dlopen }
-    override fun getRendererLibrary(): String = glName
-    override fun getRendererEGL(): String = eglName
 }

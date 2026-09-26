@@ -1,9 +1,29 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.utils.string
 
 import android.util.Base64
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 import java.util.regex.Pattern
 
 fun shiftString(input: String, direction: ShiftDirection, shiftCount: Int): String {
@@ -52,6 +72,14 @@ fun decodeUnicode(input: String): String {
     return result
 }
 
+fun String.toUuid(charset: Charset = Charsets.UTF_8): UUID {
+    return UUID.nameUUIDFromBytes(this.toByteArray(charset))
+}
+
+fun String.toUuidStr(charset: Charset = Charsets.UTF_8): String {
+    return toUuid(charset).toString()
+}
+
 /**
  * @return 检查字符串是否为null，如果是那么则返回""，如果不是，则返回字符串本身
  */
@@ -77,6 +105,8 @@ fun String.getLine(line: Int): String? {
     return if (line in 1..lines.size) lines[line - 1] else null
 }
 
+fun String.toSingleLine(replace: String = " "): String = this.replace("\n", replace)
+
 fun insertJSONValueList(args: Array<String>, keyValueMap: Map<String, String>) =
     args.map {
         keyValueMap.entries.fold(it) { acc, (k, v) ->
@@ -95,8 +125,8 @@ fun String.splitPreservingQuotes(delimiter: Char = ' '): List<String> {
                 // 切换引号状态（忽略转义引号）
                 inQuotes = !inQuotes
             }
-            c == delimiter && !inQuotes -> {
-                // 如果不在引号内且遇到空格，则结束当前部分并添加到结果中
+            (if (delimiter == ' ') c.isWhitespace() else c == delimiter) && !inQuotes -> {
+                // 如果不在引号内且遇到分隔符（默认是任意空白字符），则结束当前部分并添加到结果中
                 if (currentPart.isNotEmpty()) {
                     result.add(currentPart.toString())
                     currentPart.clear() // 清空当前部分

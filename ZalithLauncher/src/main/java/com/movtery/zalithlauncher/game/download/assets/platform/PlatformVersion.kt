@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.assets.platform
 
 import java.time.Instant
@@ -22,6 +40,11 @@ interface PlatformVersion {
      * 该版本在平台上的Id
      */
     fun platformId(): String
+
+    /**
+     * 该版本在平台上所属的项目Id
+     */
+    fun platformProjectId(): String
 
     /**
      * 该版本在平台上的显示名称
@@ -85,11 +108,21 @@ interface PlatformVersion {
 
     /**
      * 平台版本依赖项目类，保存依赖项关键信息
+     * @param projectId 依赖项目Id，若平台只提供了精确版本Id，则该值为null
+     * @param versionId 依赖的精确版本Id，为null则代表只指定了依赖项目
      * @param type 依赖类型
      */
     class PlatformDependency(
         val platform: Platform,
-        val projectId: String,
+        val projectId: String?,
+        val versionId: String? = null,
         val type: PlatformDependencyType
     )
+}
+
+/**
+ * 依赖项在缓存与去重时使用的键
+ */
+fun PlatformVersion.PlatformDependency.cacheKey(): String {
+    return "${platform.name}/${projectId.orEmpty()}/${versionId.orEmpty()}"
 }

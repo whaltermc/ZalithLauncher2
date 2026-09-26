@@ -1,3 +1,21 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.ui.screens.game
 
 import androidx.compose.foundation.layout.Box
@@ -18,11 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.constraintlayout.compose.ConstraintLayout
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.bridge.ZLBridge
+import com.movtery.zalithlauncher.bridge.ZLNativeInvoker
 import com.movtery.zalithlauncher.game.input.AWTCharSender
 import com.movtery.zalithlauncher.game.input.AWTInputEvent
 import com.movtery.zalithlauncher.ui.components.TouchableButton
-import com.movtery.zalithlauncher.ui.control.input.TextInputMode
-import com.movtery.zalithlauncher.ui.control.input.textInputHandler
 import com.movtery.zalithlauncher.ui.control.mouse.VirtualPointerLayout
 import com.movtery.zalithlauncher.ui.screens.game.elements.ForceCloseOperation
 import com.movtery.zalithlauncher.ui.screens.game.elements.LogBox
@@ -33,23 +50,31 @@ import kotlinx.coroutines.flow.filterIsInstance
 @Composable
 fun JVMScreen(
     logState: LogState,
-    onLogStateChange: (LogState) -> Unit = {},
+    onLogStateChange: (LogState) -> Unit,
     eventViewModel: EventViewModel
 ) {
     var forceCloseState by remember { mutableStateOf<ForceCloseOperation>(ForceCloseOperation.None) }
-    var textInputMode by remember { mutableStateOf(TextInputMode.DISABLE) }
 
     ForceCloseOperation(
         operation = forceCloseState,
         onChange = { forceCloseState = it },
+        onForceClose = {
+            ZLNativeInvoker.jvmExit(0, false)
+        },
         text = stringResource(R.string.game_dialog_force_close_message)
     )
+
+    LaunchedEffect(Unit) {
+        eventViewModel.events
+            .filterIsInstance<EventViewModel.Event.Game.OnBack>()
+            .collect {
+                forceCloseState = ForceCloseOperation.Show
+            }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         SimpleMouseControlLayout(
             modifier = Modifier.fillMaxSize(),
-            textInputMode = textInputMode,
-            onCloseInputMethod = { textInputMode = TextInputMode.DISABLE },
             sendMousePress = { ZLBridge.sendMousePress(AWTInputEvent.BUTTON1_DOWN_MASK) },
             sendMouseCodePress = { code, pressed ->
                 ZLBridge.sendMousePress(code, pressed)
@@ -64,6 +89,9 @@ fun JVMScreen(
 
         LogBox(
             enableLog = logState.value,
+            onClose = {
+                onLogStateChange(LogState.CLOSE)
+            },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -71,9 +99,13 @@ fun JVMScreen(
             modifier = Modifier
                 .alpha(alpha = if (logState.value) 0.5f else 1f)
                 .fillMaxSize()
-                .padding(8.dp),
+                .padding(8.dp)
+                .then(
+                    if (logState.value) Modifier.padding(end = 58.dp)
+                    else Modifier
+                ),
             changeKeyboard = {
-                textInputMode = textInputMode.switch()
+                eventViewModel.sendEvent(EventViewModel.Event.Game.SwitchIme(null))
             },
             forceCloseClick = {
                 forceCloseState = ForceCloseOperation.Show
@@ -83,33 +115,18 @@ fun JVMScreen(
             }
         )
     }
-
-    LaunchedEffect(Unit) {
-        eventViewModel.events
-            .filterIsInstance<EventViewModel.Event.Game.ShowIme>()
-            .collect {
-                textInputMode = TextInputMode.ENABLE
-            }
-    }
 }
 
 @Composable
 private fun SimpleMouseControlLayout(
     modifier: Modifier = Modifier,
-    textInputMode: TextInputMode,
-    onCloseInputMethod: () -> Unit = {},
-    sendMousePress: () -> Unit = {},
-    sendMouseCodePress: (Int, Boolean) -> Unit = { _, _ -> },
-    sendMouseLongPress: (Boolean) -> Unit = {},
-    placeMouse: (mouseX: Float, mouseY: Float) -> Unit = { _, _ -> }
+    sendMousePress: () -> Unit,
+    sendMouseCodePress: (Int, Boolean) -> Unit,
+    sendMouseLongPress: (Boolean) -> Unit,
+    placeMouse: (mouseX: Float, mouseY: Float) -> Unit
 ) {
     VirtualPointerLayout(
-        modifier = modifier
-            .textInputHandler(
-                mode = textInputMode,
-                sender = AWTCharSender,
-                onCloseInputMethod = onCloseInputMethod
-            ),
+        modifier = modifier,
         onTap = { sendMousePress() },
         onPointerMove = { placeMouse(it.x, it.y) },
         onLongPress = { sendMouseLongPress(true) },

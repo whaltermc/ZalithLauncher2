@@ -1,7 +1,27 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.launch
 
 import androidx.collection.ArrayMap
 import com.movtery.zalithlauncher.BuildConfig
+import com.movtery.zalithlauncher.BuildKeys
+import com.movtery.zalithlauncher.bridge.LoggerBridge
 import com.movtery.zalithlauncher.game.account.Account
 import com.movtery.zalithlauncher.game.account.isAuthServerAccount
 import com.movtery.zalithlauncher.game.account.isLocalAccount
@@ -9,32 +29,39 @@ import com.movtery.zalithlauncher.game.account.offline.OfflineYggdrasilServer
 import com.movtery.zalithlauncher.game.multirt.Runtime
 import com.movtery.zalithlauncher.game.path.getAssetsHome
 import com.movtery.zalithlauncher.game.path.getLibrariesHome
+import com.movtery.zalithlauncher.game.plugin.natives.NativePluginManager
 import com.movtery.zalithlauncher.game.version.download.artifactToPath
+import com.movtery.zalithlauncher.game.version.download.filterLibrary
 import com.movtery.zalithlauncher.game.version.download.getLibraryReplacement
 import com.movtery.zalithlauncher.game.version.installed.Version
-import com.movtery.zalithlauncher.game.version.installed.getGameManifest
+import com.movtery.zalithlauncher.game.version.installed.VersionInfo
+import com.movtery.zalithlauncher.game.version.installed.VersionInfoParser
 import com.movtery.zalithlauncher.game.versioninfo.models.GameManifest
-import com.movtery.zalithlauncher.info.InfoDistributor
 import com.movtery.zalithlauncher.path.LibPath
 import com.movtery.zalithlauncher.path.PathManager
+import com.movtery.zalithlauncher.ui.screens.content.elements.QuickPlay
 import com.movtery.zalithlauncher.utils.file.child
-import com.movtery.zalithlauncher.utils.logging.Logger.lDebug
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
-import com.movtery.zalithlauncher.utils.logging.Logger.lWarning
+import com.movtery.zalithlauncher.utils.logging.Logger
 import com.movtery.zalithlauncher.utils.network.ServerAddress
 import com.movtery.zalithlauncher.utils.string.insertJSONValueList
+import com.movtery.zalithlauncher.utils.string.isEmptyOrBlank
 import com.movtery.zalithlauncher.utils.string.isLowerTo
 import com.movtery.zalithlauncher.utils.string.isNotEmptyOrBlank
+import com.movtery.zalithlauncher.utils.string.splitPreservingQuotes
 import com.movtery.zalithlauncher.utils.string.toUnicodeEscaped
 import java.io.File
 
+private const val TAG = "LaunchArgs"
+
 class LaunchArgs(
-    private val launcher: Launcher,
+    private val runtimeLibraryPath: String,
     private val account: Account,
     private val offlineServer: OfflineYggdrasilServer,
     private val gameDirPath: File,
     private val version: Version,
+    private val clientJar: File,
     private val gameManifest: GameManifest,
+    private val lwjglVersion: Int,
     private val runtime: Runtime,
     private val readAssetsFile: (path: String) -> String,
     private val getCacioJavaArgs: (isJava8: Boolean) -> List<String>
@@ -44,6 +71,7 @@ class LaunchArgs(
 
         argsList.addAll(getJavaArgs())
         argsList.addAll(getMinecraftJVMArgs())
+        argsList.addAll(NativePluginManager.getJVMEnv())
 
         if (runtime.javaVersion > 8) {
             argsList.add("--add-exports")
@@ -55,42 +83,102 @@ class LaunchArgs(
         argsList.addAll(getMinecraftClientArgs())
 
         version.getVersionInfo()?.let { info ->
-            val playSingle = version.quickPlaySingle?.takeIf { it.isNotEmptyOrBlank() }
-            if (playSingle != null) { //快速启动单人游戏
-                if (info.quickPlay.isQuickPlaySingleplayer) {
-                    //将不受支持的字符转换为Unicode
-                    val saveName = playSingle.toUnicodeEscaped()
-                    argsList.apply {
-                        add("--quickPlaySingleplayer")
-                        add(saveName)
+            val quickPlay = version.quickPlaySingle
+            if (quickPlay != null) {
+                when (quickPlay) {
+                    is QuickPlay.Save -> {
+                        if (quickPlay.saveName.isEmptyOrBlank()) return@let
+
+                        if (info.quickPlay.isQuickPlaySingleplayer) {
+                            //将不受支持的字符转换为Unicode
+                            val saveName = quickPlay.saveName.toUnicodeEscaped()
+                            argsList.apply {
+                                add("--quickPlaySingleplayer")
+                                add(saveName)
+                            }
+                        } else {
+                            val msg = "Quick Play for singleplayer is not supported and has been skipped."
+                            LoggerBridge.append(msg)
+                            Logger.warning(TAG, msg)
+                        }
                     }
-                } else {
-                    lWarning("Quick Play for singleplayer is not supported and has been skipped.")
+                    is QuickPlay.Server -> {
+                        argsList.addQuickPlayServer(
+                            address = quickPlay.serverAddress,
+                            quickPlay = info.quickPlay
+                        )
+                    }
                 }
             } else {
                 version.getServerIp()?.let { address ->
-                    val parsed = ServerAddress.parse(address)
-                    argsList += if (info.quickPlay.isQuickPlayMultiplayer) {
-                        listOf(
-                            "--quickPlayMultiplayer",
-                            if (parsed.port < 0) "$address:25565" else address
-                        )
-                    } else {
-                        val port = parsed.port.takeIf { it >= 0 } ?: 25565
-                        listOf("--server", parsed.host, "--port", port.toString())
-                    }
+                    argsList.addQuickPlayServer(
+                        address = address,
+                        quickPlay = info.quickPlay
+                    )
                 }
             }
         }
 
+        //追加版本配置的游戏参数，置于参数列表末尾
+        argsList.addAll(version.getGameArgs().splitPreservingQuotes())
+
         return argsList
     }
 
-    private fun getLWJGL3ClassPath(): String =
-        File(PathManager.DIR_COMPONENTS, "lwjgl3")
-            .listFiles { file -> file.name.endsWith(".jar") }
+    private fun MutableList<String>.addQuickPlayServer(
+        address: String,
+        quickPlay: VersionInfo.QuickPlay
+    ) {
+        runCatching {
+            ServerAddress.parse(address)
+        }.onFailure {
+            val msg = "Unable to resolve the server address: $address. The automatic server join feature is unavailable."
+            LoggerBridge.append(msg)
+            Logger.warning(TAG, msg, it)
+        }.getOrNull()?.let { parsed ->
+            val args = if (quickPlay.isQuickPlayMultiplayer) {
+                val port = if (parsed.port < 0) {
+                    ServerAddress.DEFAULT_PORT
+                } else {
+                    parsed.port
+                }
+
+                listOf(
+                    "--quickPlayMultiplayer",
+                    "${parsed.getASCIIHost()}:$port"
+                )
+            } else {
+                val port = parsed.port.takeIf { it >= 0 } ?: ServerAddress.DEFAULT_PORT
+                listOf("--server", parsed.getASCIIHost(), "--port", port.toString())
+            }
+
+            addAll(args)
+        }
+    }
+
+    /**
+     * 组装 LWJGL 组件 classpath
+     * 版本 >= 3.4.1 -> 使用 3.4.1 组件；否则使用 3.3.3 组件。
+     * LWJGL2 时代（版本 <= 299）额外加入 lwjgl-lwjglx.jar 桥接层。
+     * lwjgl.jar 核心优先 -> merged-modules -> 其余模块。
+     */
+    private fun getLWJGL3ClassPath(): String {
+        val versionDir = lwjglVersionDir(lwjglVersion)
+        val dir = File(PathManager.DIR_COMPONENTS, "lwjgl/$versionDir")
+        val isLwjgl2 = lwjglVersion in 1..299
+        return dir.listFiles { file -> file.name.endsWith(".jar") }
+            ?.sortedBy { file -> lwjglJarOrder(file.name, versionDir, isLwjgl2) }
+            ?.filter { file -> isLwjgl2 || file.name != "lwjgl-lwjglx.jar" }
             ?.joinToString(":") { it.absolutePath }
             ?: ""
+    }
+
+    private fun lwjglJarOrder(name: String, versionDir: String, isLwjgl2: Boolean): Int = when (name) {
+        "lwjgl.jar" -> 0
+        "lwjgl-$versionDir-merged-modules.jar" -> 1
+        "lwjgl-lwjglx.jar" -> 3 // 桥接层放最后，仅 LWJGL2 使用
+        else -> 2
+    }
 
     private fun getJavaArgs(): List<String> {
         val argsList: MutableList<String> = ArrayList()
@@ -101,12 +189,16 @@ class LaunchArgs(
                 offlineServer.start()
                 offlineServer.addCharacter(account)
                 offlineServer.getPort()?.let { port ->
-                    lInfo("Using offline Yggdrasil server on port $port")
+                    val msg = "Using offline Yggdrasil server on port $port"
+                    LoggerBridge.append(msg)
+                    Logger.info(TAG, msg)
                     argsList.add("-javaagent:${LibPath.AUTHLIB_INJECTOR.absolutePath}=http://localhost:$port")
                     argsList.add("-Dauthlibinjector.side=client")
                 } ?: run {
                     //无法获取端口号，说明服务器未成功启动
-                    lWarning("Failed to start offline Yggdrasil server!")
+                    val msg = "Failed to start offline Yggdrasil server!"
+                    LoggerBridge.append(msg)
+                    Logger.warning(TAG, msg)
                     //本次启动将被忽略，为避免浪费性能，关停服务器
                     offlineServer.stop()
                 }
@@ -117,6 +209,7 @@ class LaunchArgs(
                 argsList.add("-Dnide8auth.client=true")
             } else {
                 argsList.add("-javaagent:${LibPath.AUTHLIB_INJECTOR.absolutePath}=${account.otherBaseUrl}")
+                argsList.add("-Dauthlibinjector.side=client")
             }
         }
 
@@ -133,17 +226,19 @@ class LaunchArgs(
                 }
                 configFilePath.writeText(content)
             }.onFailure {
-                lWarning("Failed to write fallback Log4j configuration autonomously!", it)
+                Logger.warning(TAG, "Failed to write fallback Log4j configuration autonomously!", it)
             }
         }
         argsList.add("-Dlog4j.configurationFile=${configFilePath.absolutePath}")
-        argsList.add("-Dminecraft.client.jar=${version.getClientJar().absolutePath}")
+        argsList.add("-Dminecraft.client.jar=${clientJar.absolutePath}")
+        argsList.add("-Dminecraft.launcher.brand=${BuildKeys.LAUNCHER_NAME}")
+        argsList.add("-Dminecraft.launcher.version=${BuildConfig.VERSION_NAME}")
 
         return argsList
     }
 
     private fun getMinecraftJVMArgs(): Array<String> {
-        val gameManifest1 = getGameManifest(version, true)
+        val gameManifest1 = VersionInfoParser(version).build()
 
 //        // Parse Forge 1.17+ additional JVM Arguments
 //        if (versionInfo.inheritsFrom == null || versionInfo.arguments == null || versionInfo.arguments.jvm == null) {
@@ -155,27 +250,31 @@ class LaunchArgs(
         var hasClasspath = false //是否已经在jvm参数中包含 ${classpath} 配置
 
         varArgMap["classpath_separator"] = ":"
-        varArgMap["library_directory"] = getLibrariesHome()
+        varArgMap["library_directory"] = getLibrariesHome(version.getGameHome())
         varArgMap["version_name"] = gameManifest1.id
-        varArgMap["natives_directory"] = launcher.libraryPath
+        varArgMap["natives_directory"] = runtimeLibraryPath
         setLauncherInfo(varArgMap)
 
-        fun Any.processJvmArg(): String? = (this as? String)?.let {
+        fun Any.processJvmArg(): String? = (this as? String)?.let { argument ->
+            if (argument.startsWith("-Djava.library.path=")) {
+                //26.2+ Mojang 更改到了具体的路径，需要手动重定向
+                return@let $$"-Djava.library.path=${natives_directory}"
+            }
             when {
-                it.startsWith("-DignoreList=") -> {
-                    "$it,${version.getVersionName()}.jar"
+                argument.startsWith("-DignoreList=") -> {
+                    "$argument,${version.getVersionName()}.jar"
                 }
-                it.contains("-Dio.netty.native.workdir") ||
-                it.contains("-Djna.tmpdir") ||
-                it.contains("-Dorg.lwjgl.system.SharedLibraryExtractPath") -> {
+                argument.contains("-Dio.netty.native.workdir") ||
+                argument.contains("-Djna.tmpdir") ||
+                argument.contains("-Dorg.lwjgl.system.SharedLibraryExtractPath") -> {
                     //使用一个可读的目录
-                    it.replace("\${natives_directory}", PathManager.DIR_CACHE.absolutePath)
+                    argument.replace($$"${natives_directory}", PathManager.DIR_CACHE.absolutePath)
                 }
-                it == "\${classpath}" -> {
+                argument == $$"${classpath}" -> {
                     hasClasspath = true
                     launchClassPath
                 }
-                else -> it
+                else -> argument
             }
         }
 
@@ -198,22 +297,18 @@ class LaunchArgs(
      */
     private fun generateLaunchClassPath(gameManifest: GameManifest): String {
         val classpathList = mutableListOf<String>()
-
         val classpath: Array<String> = generateLibClasspath(gameManifest)
-
-        val clientClass = version.getClientJar()
-        val clientClasspath: String = clientClass.absolutePath
 
         for (jarFile in classpath) {
             val jarFileObj = File(jarFile)
             if (!jarFileObj.exists()) {
-                lDebug("Ignored non-exists file: $jarFile")
+                Logger.debug(TAG, "Ignored non-exists file: $jarFile")
                 continue
             }
             classpathList.add(jarFile)
         }
-        if (clientClass.exists()) {
-            classpathList.add(clientClasspath)
+        if (clientJar.exists()) {
+            classpathList.add(clientJar.absolutePath)
         }
 
         return classpathList.joinToString(":")
@@ -223,26 +318,34 @@ class LaunchArgs(
      * [Modified from PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher/blob/a6f3fc0/app_pojavlauncher/src/main/java/net/kdt/pojavlaunch/Tools.java#L871-L882)
      */
     private fun generateLibClasspath(gameManifest: GameManifest): Array<String> {
-        val libDir: MutableList<String> = ArrayList()
+        val libSortFix = LibSortFix(version.getVersionInfo())
+        val libs = LinkedHashMap<GameManifest.Library, String>()
+
         for (libItem in gameManifest.libraries) {
             if (!(GameManifest.Rule.checkRules(libItem.rules) && !libItem.isNative)) continue
-            val libArtifactPath: String = libItem.progressLibrary() ?: continue
-            libDir.add(getLibrariesHome() + "/" + libArtifactPath)
+            val path = libItem.progressLibrary() ?: continue
+            with(libSortFix) {
+                libs.insertLib(libItem, getLibrariesHome(version.getGameHome()) + "/" + path)
+            }
         }
-        return libDir.toTypedArray<String>()
+
+        return libs.values.toTypedArray<String>()
     }
+
 
     /**
      * @return 库相对路径
      */
     private fun GameManifest.Library.progressLibrary(): String? {
+        if (filterLibrary()) return null
+
         var path = artifactToPath(this)
 
         val versionSegment = name.split(":").getOrNull(2) ?: return path
         val versionParts = versionSegment.split(".")
 
         getLibraryReplacement(name, versionParts)?.let { replacement ->
-            lDebug("Library ${this.name} has been changed to version ${replacement.newName.split(":").last()}")
+            Logger.debug(TAG, "Library ${this.name} has been changed to version ${replacement.newName.split(":").last()}")
             path = replacement.newPath
         }
 
@@ -256,13 +359,13 @@ class LaunchArgs(
         varArgMap["auth_player_name"] = account.username
         varArgMap["auth_uuid"] = account.profileId.replace("-", "")
         varArgMap["auth_xuid"] = account.xUid ?: ""
-        varArgMap["assets_root"] = getAssetsHome()
-        varArgMap["assets_index_name"] = gameManifest.assets
-        varArgMap["game_assets"] = getAssetsHome()
+        varArgMap["assets_root"] = getAssetsHome(version.getGameHome())
+        varArgMap["assets_index_name"] = gameManifest.assetIndex.id
+        varArgMap["game_assets"] = getAssetsHome(version.getGameHome())
         varArgMap["game_directory"] = gameDirPath.absolutePath
         varArgMap["user_properties"] = "{}"
         varArgMap["user_type"] = "msa"
-        varArgMap["version_name"] = version.getVersionInfo()!!.minecraftVersion
+        varArgMap["version_name"] = gameManifest.id
 
         setLauncherInfo(varArgMap)
 
@@ -281,7 +384,7 @@ class LaunchArgs(
     }
 
     private fun setLauncherInfo(verArgMap: MutableMap<String, String>) {
-        verArgMap["launcher_name"] = InfoDistributor.LAUNCHER_NAME
+        verArgMap["launcher_name"] = BuildKeys.LAUNCHER_NAME
         verArgMap["launcher_version"] = BuildConfig.VERSION_NAME
         verArgMap["version_type"] = version.getCustomInfo()
             .takeIf { it.isNotEmptyOrBlank() }
@@ -296,3 +399,32 @@ class LaunchArgs(
         return list.toTypedArray()
     }
 }
+
+/**
+ * 从版本清单中探测要求的 LWJGL 主版本
+ * 解析 `org.lwjgl:lwjgl:X.Y.Z` / `org.lwjgl.lwjgl:lwjgl:X.Y.Z` 坐标，
+ * 返回去掉句点后的整数（如 3.3.3→333、3.4.1→341、2.9.9→299）
+ * @return 无法确定时返回 0（默认按 LWJGL3 处理）
+ */
+fun detectLwjglVersion(manifest: GameManifest): Int {
+    for (lib in manifest.libraries) {
+        val name = lib.name ?: continue
+        val versionPrefix = when {
+            name.startsWith("org.lwjgl.lwjgl:lwjgl:") -> "org.lwjgl.lwjgl:lwjgl:"
+            name.startsWith("org.lwjgl:lwjgl:") -> "org.lwjgl:lwjgl:"
+            else -> continue
+        }
+        val intVersion = name.substring(versionPrefix.length)
+            .takeWhile { it.isDigit() || it == '.' }
+            .filter { it != '.' }
+            .toIntOrNull()
+        if (intVersion != null && intVersion in 200..999) return intVersion
+    }
+    return 0
+}
+
+/**
+ * LWJGL 版本整数 -> 组件目录名。
+ * 版本 >= 3.4.1 -> 3.4.1 组件；否则（含 LWJGL2 桥接场景）-> 3.3.3 组件
+ */
+fun lwjglVersionDir(lwjglVersion: Int): String = if (lwjglVersion >= 341) "3.4.1" else "3.3.3"

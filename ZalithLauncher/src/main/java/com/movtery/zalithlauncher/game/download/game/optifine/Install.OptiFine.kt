@@ -1,21 +1,47 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.game.download.game.optifine
 
 import com.movtery.zalithlauncher.R
 import com.movtery.zalithlauncher.components.jre.Jre
+import com.movtery.zalithlauncher.context.GlobalContext
 import com.movtery.zalithlauncher.coroutine.Task
+import com.movtery.zalithlauncher.coroutine.TaskLogOutput
+import com.movtery.zalithlauncher.coroutine.withTaskLogOutput
 import com.movtery.zalithlauncher.game.addons.modloader.ModLoader
 import com.movtery.zalithlauncher.game.addons.modloader.optifine.OptiFineVersion
 import com.movtery.zalithlauncher.game.download.game.isOldVersion
 import com.movtery.zalithlauncher.game.download.jvm_server.runJvmRetryRuntimes
+import com.movtery.zalithlauncher.game.download.jvm_server.stopAllNonMainProcesses
 import com.movtery.zalithlauncher.game.version.download.parseTo
 import com.movtery.zalithlauncher.game.versioninfo.models.GameManifest
 import com.movtery.zalithlauncher.path.LibPath
+import com.movtery.zalithlauncher.ui.androidText
 import com.movtery.zalithlauncher.utils.file.extractEntryToFile
 import com.movtery.zalithlauncher.utils.file.readText
-import com.movtery.zalithlauncher.utils.logging.Logger.lInfo
+import com.movtery.zalithlauncher.utils.logging.Logger
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.time.format.DateTimeFormatter
 import java.util.zip.ZipFile
+
+private const val TAG = "Install.OptiFine"
 
 const val OPTIFINE_INSTALL_ID = "Install.OptiFine"
 
@@ -24,7 +50,8 @@ fun getOptiFineInstallTask(
     tempMinecraftDir: File,
     tempInstallerJar: File,
     isNewVersion: Boolean,
-    optifineVersion: OptiFineVersion
+    optifineVersion: OptiFineVersion,
+    logOutputHolder: MutableStateFlow<TaskLogOutput?>
 ): Task {
     val tempVersionFolder = File(tempMinecraftDir, "versions")
     val tempLibrariesFolder = File(tempMinecraftDir, "libraries")
@@ -32,31 +59,44 @@ fun getOptiFineInstallTask(
     return Task.runTask(
         id = OPTIFINE_INSTALL_ID,
         task = { task ->
-            task.updateProgress(-1f, R.string.download_game_install_base_installing, ModLoader.OPTIFINE.displayName)
+            task.updateProgress(-1f)
+            task.updateMessage(androidText(
+                R.string.download_game_install_base_installing, ModLoader.OPTIFINE.displayName
+            ))
 
             if (isNewVersion) {
-                runJvmRetryRuntimes(
-                    OPTIFINE_INSTALL_ID,
-                    jvmArgs =
-                        "-javaagent:" +
-                                //使用 AWTBlockerAgent 禁用 AWT GUI 类调用
-                                LibPath.AWT_BLOCKER_AGENT.absolutePath + " " +
-                                "-cp" + " " +
-                                //使用 JarExceptionCatcher 捕获异常并退出
-                                LibPath.JAR_EXCEPTION_CATCHER.absolutePath + ":" +
-                                tempInstallerJar.absolutePath + " " +
-                                "movtery.JarExceptionCatcher" + " " +
-                                "optifine.Installer",
-                    prefixArgs = { jre ->
-                        if (jre.majorVersion >= 9) {
-                            "--add-exports cpw.mods.bootstraplauncher/cpw.mods.bootstraplauncher=ALL-UNNAMED"
-                        } else {
-                            null
-                        }
-                    },
-                    jre = Jre.JRE_8,
-                    userHome = tempGameDir.absolutePath.trimEnd('\\')
-                )
+                stopAllNonMainProcesses(GlobalContext)
+                withTaskLogOutput(
+                    holder = logOutputHolder,
+                    title = androidText(
+                        R.string.download_game_install_base_install,
+                        ModLoader.OPTIFINE.displayName
+                    )
+                ) { output ->
+                    runJvmRetryRuntimes(
+                        OPTIFINE_INSTALL_ID,
+                        jvmArgs =
+                            "-javaagent:" +
+                                    //使用 AWTBlockerAgent 禁用 AWT GUI 类调用
+                                    LibPath.AWT_BLOCKER_AGENT.absolutePath + " " +
+                                    "-cp" + " " +
+                                    //使用 JarExceptionCatcher 捕获异常并退出
+                                    LibPath.JAR_EXCEPTION_CATCHER.absolutePath + ":" +
+                                    tempInstallerJar.absolutePath + " " +
+                                    "movtery.JarExceptionCatcher" + " " +
+                                    "optifine.Installer",
+                        prefixArgs = { jre ->
+                            if (jre.majorVersion >= 9) {
+                                "--add-exports cpw.mods.bootstraplauncher/cpw.mods.bootstraplauncher=ALL-UNNAMED"
+                            } else {
+                                null
+                            }
+                        },
+                        jre = Jre.JRE_8,
+                        userHome = tempGameDir.absolutePath.trimEnd('\\'),
+                        logOutput = output
+                    )
+                }
 
                 //检查 launchwrapper 是否正常安装
                 ZipFile(tempInstallerJar).use { zip ->
@@ -100,7 +140,7 @@ private fun checkOFLaunchWrapper(version: String, installer: ZipFile, libFolder:
 
     if (!lwTargetFile.exists()) {
         //安装出现神秘问题导致该文件未解压，自行尝试解压
-        lInfo("$fileName is not exists! try extract it by self.")
+        Logger.info(TAG, "$fileName is not exists! try extract it by self.")
         installer.extractEntryToFile(fileName, lwTargetFile)
     }
 }
